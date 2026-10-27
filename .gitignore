@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+salida/
+# Nunca versionar datos reales de pacientes ni credenciales
+datos_reales/
+*.eml
+!datos_prueba/**/*.eml
+.env
+credentials*.json
+token*.json
