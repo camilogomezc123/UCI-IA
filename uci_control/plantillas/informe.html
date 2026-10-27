@@ -159,7 +159,7 @@ function pacientes(){
         <div class="riesgos">${NOMBRES.map(([k, n]) => { const r = e[k]; const t = r.nivel === "sin dato" ? "sin" : r.nivel;
           return `<div class="r" title="${esc(r.factores.join(" · ") || "Sin factores")}"><div class="n">${n}</div>${pill(t, r.nivel)}</div>`; }).join("")}</div>
         ${e.alertas.map(a => `<div class="alerta-pac">⚠ ${esc(a)}</div>`).join("")}
-        <ul class="sug">${p.sugerencias.map(s => `<li>${pill(s.prioridad)}<div>${esc(s.accion)}<div class="srv">${esc(s.servicio)} · ${esc(s.motivo)}</div>${s.seguimiento ? `<div class="cod">${esc(s.seguimiento.id)} · ${s.seguimiento.dias_abierta ? `<span class="${s.seguimiento.dias_abierta >= 2 ? "vieja" : ""}">abierta hace ${s.seguimiento.dias_abierta} día${s.seguimiento.dias_abierta === 1 ? "" : "s"}</span>` : "nueva hoy"}</div>` : ""}</div></li>`).join("")}</ul>
+        <ul class="sug">${p.sugerencias.map(s => `<li>${pill(s.prioridad)}<div>${esc(s.accion)}<div class="srv">${esc(s.servicio)} · ${esc(s.motivo)}</div>${s.seguimiento ? `<div class="cod">${esc(s.seguimiento.id)} · ${s.seguimiento.estado !== "pendiente" ? pill(s.seguimiento.estado === "hecho" ? "bajo" : "sin", ESTADO[s.seguimiento.estado]) : s.seguimiento.dias_abierta ? `<span class="${s.seguimiento.dias_abierta >= 2 ? "vieja" : ""}">abierta hace ${s.seguimiento.dias_abierta} día${s.seguimiento.dias_abierta === 1 ? "" : "s"}</span>` : "nueva hoy"}</div>` : ""}</div></li>`).join("")}</ul>
         <details><summary>Por qué estos niveles</summary><ul>${NOMBRES.map(([k, n]) => `<li><b>${n}:</b> ${esc(e[k].factores.join("; ") || "sin factores")}</li>`).join("")}</ul></details>
         <div class="valor">Días estimados que faltan: <span class="mono">${e.dias_restantes_estimados.toLocaleString("es-CO")}</span> · valor en juego: <span class="mono">${pesos(e.valor_en_juego)}</span></div>
       </article>`; }).join("")}</div>`;
@@ -174,11 +174,11 @@ function discrepancias(){
 }
 
 function seguimiento(){
-  const abiertas = RIESGO.flatMap(p => p.sugerencias.filter(s => s.seguimiento).map(s => ({...s, ...s.seguimiento}))).sort((a, b) => b.dias_abierta - a.dias_abierta);
+  const abiertas = RIESGO.flatMap(p => p.sugerencias.filter(s => s.seguimiento && s.seguimiento.estado === "pendiente").map(s => ({...s, ...s.seguimiento}))).sort((a, b) => b.dias_abierta - a.dias_abierta);
   const fila = d => `<tr><td>${esc(d.servicio)}</td><td class="mono">${d.total}</td><td class="mono">${d.hecho}</td><td class="mono">${d.no_aplica}</td><td class="mono">${d.resuelta}</td><td class="mono">${d.pendiente}</td><td class="mono">${d.gestionadas_pct.toLocaleString("es-CO")}%</td><td class="mono">${d.mediana_dias_a_hecho ?? "—"}</td></tr>`;
   document.getElementById("v-seguimiento").innerHTML = `
-    <div class="list"><h2>Sugerencias abiertas hoy, de la más antigua a la más nueva</h2>
-    <p class="sub" style="margin:0">Para cerrar una, márquela con su código: <span class="mono">python -m uci_control seguimiento marcar CÓDIGO hecho</span>, o en el Excel de pendientes.</p>
+    <div class="list"><h2>Sugerencias pendientes, de la más antigua a la más nueva</h2>
+    <p class="sub" style="margin:0">Para cerrar una, cambie su estado a hecho o no aplica en el Excel de pendientes que llega con el informe, o márquela por código con <span class="mono">seguimiento marcar CÓDIGO hecho</span>.</p>
     <div class="tablewrap"><table><thead><tr><th>Código</th><th>Cama</th><th>Servicio</th><th>Acción</th><th>Abierta</th></tr></thead><tbody>${abiertas.map(s =>
       `<tr><td class="mono">${esc(s.id)}</td><td class="mono">${esc(s.cama)}</td><td>${esc(s.servicio)}</td><td>${esc(s.accion)}<div class="sub">${esc(s.motivo)}</div></td><td class="mono ${s.dias_abierta >= 2 ? "vieja" : ""}">${s.dias_abierta ? s.dias_abierta + " d" : "hoy"}</td></tr>`).join("")}</tbody></table></div></div>
     <div class="list"><h2>Adherencia acumulada por servicio</h2>
