@@ -38,6 +38,10 @@ python -m uci_control riesgo --tablero Reporte_TableroControlUCI1.xlsx --salida 
 
 Los puntajes son reglas a partir de escalas validadas; no están calibrados con desenlaces de la clínica hasta tener egreso, muerte y estancia final por episodio.
 
+## Gestión de camas y egreso oportuno
+
+`python -m uci_control camas --tablero ...` (y la pestaña "Camas y egresos" de la corrida diaria) dice quién cumple criterios de alta hoy, qué barrera lo frena y con quién escalarla, cuántas camas se liberan frente a los ingresos esperados y en qué nivel de escalamiento está la unidad. Se basa en la guía SCCM 2016, SAFER y Red2Green del NHS, Real-Time Demand Capacity del IHI, OPEL y el SWIFT. Detalle y referencias: [docs/GESTION_CAMAS.md](docs/GESTION_CAMAS.md).
+
 ## Corrida diaria y seguimiento
 
 `python -m uci_control diario` lee del buzón las entregas y los tableros de ORBIT, genera el informe (Markdown, JSON y HTML interactivo), registra las sugerencias en una base de seguimiento y, con `--enviar`, lo manda por correo. El equipo marca cada sugerencia como hecha o no aplica (`seguimiento marcar` o el Excel de pendientes) y el informe muestra cuántos días lleva abierta cada una y la adherencia por servicio. Instalación, acceso a Gmail y programación: [docs/OPERACION.md](docs/OPERACION.md).

@@ -26,7 +26,7 @@ _COLOR = {"inmediata": "#b3261e", "inmediato": "#b3261e", "hoy": "#c25e00", "48h
           "critica": "#b3261e", "alta": "#c25e00"}
 
 
-def correo(inf: InformeDiario, riesgo: list[dict], adherencia: list[dict]) -> str:
+def correo(inf: InformeDiario, riesgo: list[dict], adherencia: list[dict], camas: dict | None = None) -> str:
     """Resumen para el cuerpo del correo: indicadores, alertas, prioridades inmediatas y sugerencias de hoy."""
     ind = inf.indicadores
     td = 'style="padding:6px 10px;border-bottom:1px solid #dfe5e4;vertical-align:top"'
@@ -50,6 +50,20 @@ def correo(inf: InformeDiario, riesgo: list[dict], adherencia: list[dict]) -> st
                     f"<b>{ind['soporte_vasoactivo']}</b> con vasoactivo",
                     f"<b>{escape(pesos(ind['financiero']['costo_estancia_evitable_dia_cop']))}</b> estancia evitable"]]),
     ]
+    if camas:
+        color = {1: "#2e6b3a", 2: "#8a6d00", 3: "#c25e00", 4: "#b3261e"}[camas["nivel"]]
+        partes.append(f'<h3 style="margin:16px 0 6px">Plan de camas · <span style="color:{color}">nivel {camas["nivel"]} ({escape(camas["nivel_nombre"])})</span></h3>')
+        partes.append(f'<p style="margin:0 0 6px">{camas["libres"]} camas libres + {camas["egresos_esperados"]} egresos esperados − '
+                      f'{camas["demanda_esperada"]} ingresos esperados = <b>brecha {camas["brecha"]:+}</b>. '
+                      f'{camas["listos"]} pacientes listos para salir ({camas["listos_sin_salir_mas_de_un_dia"]} desde ayer o antes); '
+                      f'{escape(pesos(camas["valor_bloqueado_hoy"]))} en días-cama UCI de pacientes que ya pueden salir.</p>')
+        salir = [p for p in camas["pacientes"] if p["estado"] in ("listo", "casi")]
+        if salir:
+            partes.append(tabla(["Cama", "Estado", "Destino", "Barrera", "Primera acción"], [
+                [escape(p["cama"]), f'<b>{escape(p["estado"])}</b>' + (f' · {p["dias_listo_sin_salir"]} d sin salir' if p["dias_listo_sin_salir"] else ""),
+                 escape(p["destino"]), escape(", ".join(b["nombre"] for b in p["barreras"])), escape(p["acciones"][0] if p["acciones"] else "")]
+                for p in salir]))
+        partes.append('<p style="margin:6px 0 0;font-size:13px">' + " · ".join(escape(a) for a in camas["acciones_nivel"]) + "</p>")
     if inf.alertas:
         partes.append('<h3 style="margin:16px 0 6px;color:#b3261e">Alertas críticas</h3>')
         partes.append(tabla([], [[escape(a["mensaje"]) + (f" ({escape(', '.join(a['camas']))})" if a["camas"] else "")] for a in inf.alertas]))

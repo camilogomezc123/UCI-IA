@@ -43,7 +43,8 @@ def test_corrida_diaria_y_seguimiento(buzon, tmp_path):
     s = datos["riesgo"][0]["sugerencias"][0]
     assert s["seguimiento"]["dias_abierta"] == 0
     html = r.archivos["html"].read_text(encoding="utf-8")
-    assert html.startswith("<!doctype html>") and "Seguimiento" in html and "SINT-" not in html
+    assert html.startswith("<!doctype html>") and "Seguimiento" in html and "Camas y egresos" in html and "SINT-" not in html
+    assert datos["camas"]["ocupadas"] == 4 and "Plan de camas" in r.html_correo
     assert "Sugerencias para hoy" in r.html_correo and "<script" not in r.html_correo
 
     # Al día siguiente la misma sugerencia sigue abierta un día; una marcada como hecha no vuelve a pendiente.

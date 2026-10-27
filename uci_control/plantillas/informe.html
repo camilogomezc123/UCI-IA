@@ -38,6 +38,12 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .kpi .l{color:var(--muted);font-size:13px}
 .resumen{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;max-width:none}
 .resumen p{margin:0;max-width:75ch}
+.nivel{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;border-radius:6px;padding:12px 16px;border-left:6px solid var(--n);background:var(--panel);border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.nivel .t{font-size:18px;font-weight:700;color:var(--n)}
+.nivel ul{margin:0;padding-left:18px;flex-basis:100%;font-size:14px}
+.n1{--n:var(--low)}.n2{--n:var(--med)}.n3{--n:var(--high)}.n4{--n:var(--crit)}
+.ecuacion{font-family:var(--f-data);font-size:15px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 14px;overflow-x:auto;white-space:nowrap}
+.p-listo{background:var(--low-soft);color:var(--low)}.p-casi{background:var(--med-soft);color:var(--med)}
 .alert{display:flex;gap:12px;align-items:flex-start;background:var(--crit-soft);border-left:4px solid var(--crit);border-radius:4px;padding:10px 14px}
 .alert .tag{font-family:var(--f-data);font-size:12px;color:var(--crit);font-weight:500;text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
 .list{display:flex;flex-direction:column;gap:10px}
@@ -88,13 +94,15 @@ footer{color:var(--muted);font-size:13px;max-width:75ch}
   </header>
   <div class="demo" id="demo" hidden><b>Demo con datos sintéticos.</b> Ningún paciente es real.</div>
   <nav class="tabs" role="tablist">
-    <button role="tab" id="t-informe" aria-selected="true" data-v="informe">Informe del día</button>
+    <button role="tab" id="t-camas" aria-selected="true" data-v="camas">Camas y egresos</button>
+    <button role="tab" id="t-informe" aria-selected="false" data-v="informe">Informe del día</button>
     <button role="tab" id="t-pacientes" aria-selected="false" data-v="pacientes">Riesgo por paciente</button>
     <button role="tab" id="t-seguimiento" aria-selected="false" data-v="seguimiento">Seguimiento</button>
     <button role="tab" id="t-discrepancias" aria-selected="false" data-v="discrepancias">Discrepancias</button>
   </nav>
 
-  <section id="v-informe" class="list" style="gap:20px"></section>
+  <section id="v-camas" class="list" style="gap:20px"></section>
+  <section id="v-informe" class="list" style="gap:20px" hidden></section>
   <section id="v-pacientes" class="list" hidden></section>
   <section id="v-seguimiento" class="list" hidden></section>
   <section id="v-discrepancias" class="list" hidden></section>
@@ -104,7 +112,7 @@ footer{color:var(--muted);font-size:13px;max-width:75ch}
 
 <script>
 const DATOS = /*DATOS*/null;
-const INFORME = DATOS.informe, RIESGO = DATOS.riesgo, ADHERENCIA = DATOS.adherencia || [];
+const INFORME = DATOS.informe, RIESGO = DATOS.riesgo, ADHERENCIA = DATOS.adherencia || [], CAMAS = DATOS.camas;
 document.getElementById("demo").hidden = !DATOS.demo;
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pesos = v => "$" + Math.round(v).toLocaleString("es-CO");
@@ -114,6 +122,33 @@ const RESP = {medico_uci:"Médico UCI", enfermeria:"Enfermería", facturacion:"F
 const resp = r => RESP[r] || (r ? r.replace(/_/g," ").replace(/^./, c => c.toUpperCase()) : "");
 
 document.getElementById("fecha").textContent = "Informe del " + new Date(INFORME.fecha + "T12:00:00").toLocaleDateString("es-CO", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+
+function camas(){
+  const el = document.getElementById("v-camas");
+  if (!CAMAS) { el.innerHTML = `<p class="sub">No llegó tablero de ORBIT: sin plan de camas hoy.</p>`; return; }
+  const c = CAMAS, f = c.flujo || {};
+  const salir = c.pacientes.filter(p => p.estado !== "no"), resto = c.pacientes.filter(p => p.estado === "no");
+  const fecha = d => d ? new Date(d + "T12:00:00").toLocaleDateString("es-CO", {day:"numeric", month:"short"}) : "—";
+  const kpis = [
+    [c.listos, "listos para salir hoy"], [c.listos_sin_salir_mas_de_un_dia, "listos desde ayer o antes"],
+    [c.estancados, "con 7 días o más"], [c.muy_estancados, "con 21 días o más"],
+    [pesos(c.valor_bloqueado_hoy), "en días UCI de pacientes listos"], [c.ingresos_perdidos_estimados.toLocaleString("es-CO"), "ingresos que hoy no tendrían cama"],
+  ];
+  el.innerHTML = `
+    <div class="nivel n${c.nivel}"><span class="t">Nivel ${c.nivel} · ${esc(c.nivel_nombre)}</span><span class="sub">${c.ocupadas} de ${c.camas_totales} camas ocupadas</span>
+      <ul>${c.acciones_nivel.map(a => `<li>${esc(a)}</li>`).join("")}</ul></div>
+    <div class="ecuacion">${c.libres} libres + ${c.egresos_esperados.toLocaleString("es-CO")} egresos esperados − ${c.demanda_esperada.toLocaleString("es-CO")} ingresos esperados = <b>${c.brecha > 0 ? "+" : ""}${c.brecha.toLocaleString("es-CO")} camas</b></div>
+    <div class="kpis">${kpis.map(([v,l]) => `<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`).join("")}</div>
+    <div class="list"><h2>Pacientes para egresar, en orden</h2>
+      <div class="tablewrap"><table><thead><tr><th>Cama</th><th>Estado</th><th>Destino</th><th>Días UCI</th><th>Egreso esperado</th><th>Barrera</th><th>Qué hacer</th></tr></thead><tbody>${salir.map(p =>
+        `<tr><td class="mono">${esc(p.cama)}</td><td>${pill(p.estado)}${p.dias_listo_sin_salir ? `<div class="vieja" style="font-size:12px">${p.dias_listo_sin_salir} d sin salir</div>` : ""}</td><td>${esc(p.destino)}</td><td class="mono">${p.dias_uci}</td><td class="mono">${fecha(p.fecha_esperada_egreso)}</td><td>${p.barreras.map(b => esc(b.nombre)).join("<br>")}</td><td><ul class="sug" style="gap:4px">${p.acciones.map(a => `<li style="display:block">${esc(a)}</li>`).join("")}</ul></td></tr>`).join("") || `<tr><td colspan="7" class="sub">Ningún paciente cumple hoy criterios de alta.</td></tr>`}</tbody></table></div></div>
+    ${c.barreras_frecuentes.length ? `<div class="list"><h2>Barreras de los pacientes listos</h2><div class="tablewrap"><table><thead><tr><th>Barrera</th><th>Pacientes</th><th>Responsable</th><th>Escalamiento</th></tr></thead><tbody>${c.barreras_frecuentes.map(b => `<tr><td>${esc(b.nombre)}</td><td class="mono">${b.pacientes}</td><td>${esc(b.responsable)}</td><td>${esc(b.escalamiento)}</td></tr>`).join("")}</tbody></table></div></div>` : ""}
+    ${f.dias_con_datos >= 2 ? `<div class="list"><h2>Flujo de los últimos 30 días</h2><div class="kpis">
+      <div class="kpi"><div class="v">${f.egresos_detectados}</div><div class="l">egresos detectados</div></div>
+      <div class="kpi"><div class="v">${f.listos_que_salieron_al_dia_siguiente_pct ?? "—"}${f.listos_que_salieron_al_dia_siguiente_pct != null ? "%" : ""}</div><div class="l">de los pacientes listos salió al día siguiente</div></div>
+      <div class="kpi"><div class="v">${f.dias_cama_rojos}</div><div class="l">días-cama rojos (listo y no salió)</div></div></div></div>` : `<p class="sub" style="margin:0">Los indicadores de flujo aparecen desde el segundo día de historial.</p>`}
+    <div class="list"><h2>Siguen necesitando UCI</h2><p class="sub" style="margin:0">${resto.map(p => `<span class="mono">${esc(p.cama)}</span> egreso esperado ${fecha(p.fecha_esperada_egreso)}`).join(" · ") || "Ninguno"}</p></div>`;
+}
 
 function informe(){
   const i = INFORME.indicadores, f = i.financiero;
@@ -186,9 +221,9 @@ function seguimiento(){
     <div class="tablewrap"><table><thead><tr><th>Servicio</th><th>Total</th><th>Hechas</th><th>No aplica</th><th>Resueltas</th><th>Pendientes</th><th>Gestionadas</th><th>Mediana días a hecho</th></tr></thead><tbody>${ADHERENCIA.map(fila).join("") || `<tr><td colspan="8" class="sub">Todavía no hay historia: la adherencia se llena a partir del segundo día.</td></tr>`}</tbody></table></div></div>`;
 }
 
-informe(); pacientes(); seguimiento(); discrepancias();
+camas(); informe(); pacientes(); seguimiento(); discrepancias();
 document.querySelectorAll("nav.tabs button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll("nav.tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
-  ["informe","pacientes","seguimiento","discrepancias"].forEach(v => document.getElementById("v-" + v).hidden = v !== b.dataset.v);
+  ["camas","informe","pacientes","seguimiento","discrepancias"].forEach(v => document.getElementById("v-" + v).hidden = v !== b.dataset.v);
 }));
 </script>

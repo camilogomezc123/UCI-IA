@@ -47,6 +47,15 @@ DIAS_ANTIBIOTICO_REVISAR = 7
 DIAS_VMI_TRAQUEOSTOMIA = 10
 DIAS_ESTANCIA_PROLONGADA = 14
 
+# Gestión de camas (ilustrativos; los reales por UCI_PARAMETROS).
+CAMAS_UCI_TOTAL = 66
+SOLICITUDES_CAMA_DIA = 14.0  # demanda media diaria de solicitudes de cama UCI
+PROPORCION_SOLICITUDES_ADMITIBLES = 0.7  # parte de las solicitudes que termina en ingreso si hay cama
+DIAS_PACIENTE_ESTANCADO = 7  # "stranded" (NHS)
+DIAS_PACIENTE_MUY_ESTANCADO = 21  # "super-stranded" (NHS)
+SWIFT_UMBRAL_ALTO = 15  # riesgo alto de reingreso a UCI; ajustar con datos locales
+HORA_LIMITE_EGRESO = 16  # egresos después de esta hora se asocian a más mortalidad y reingreso
+
 
 def _cargar_parametros() -> None:
     ruta = os.environ.get("UCI_PARAMETROS")

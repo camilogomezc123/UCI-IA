@@ -49,6 +49,16 @@ def main(argv: list[str] | None = None) -> int:
     dia.add_argument("--salida", type=Path, default=Path("salida"))
     dia.add_argument("--enviar", nargs="+", metavar="CORREO", help="Destinatarios del informe (requiere --gmail-token)")
     dia.add_argument("--con-ia", action="store_true", help="Pedir a Claude el resumen y las prioridades")
+    dia.add_argument("--historial-camas", type=Path, help="Historial diario del tablero (por defecto junto a la base de seguimiento)")
+    dia.add_argument("--camas-totales", type=int, help="Camas UCI habilitadas (por defecto, config)")
+    dia.add_argument("--demanda", type=float, help="Ingresos esperados hoy (por defecto, solicitudes diarias por la proporción admitible)")
+
+    cm = sub.add_parser("camas", help="Plan de camas y egresos del día desde uno o varios tableros de ORBIT")
+    cm.add_argument("--tablero", type=Path, nargs="+", required=True)
+    cm.add_argument("--historial", type=Path, default=Path("historial_camas.sqlite"))
+    cm.add_argument("--camas-totales", type=int)
+    cm.add_argument("--demanda", type=float)
+    cm.add_argument("--salida", type=Path, default=Path("salida"))
 
     sg = sub.add_parser("seguimiento", help="Marcar sugerencias y ver la adherencia")
     sg.add_argument("--base", type=Path, default=Path("seguimiento.sqlite"))
@@ -109,7 +119,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.enviar and not gmail:
             parser.error("--enviar requiere --gmail-token")
         r = correr_dia(fecha, gmail or CarpetaCorreos(args.correos), args.salida, args.seguimiento,
-                       censo_csv=args.orbit, costos_csv=args.costos, usar_ia=args.con_ia)
+                       censo_csv=args.orbit, costos_csv=args.costos, usar_ia=args.con_ia,
+                       historial_camas=args.historial_camas, camas_totales=args.camas_totales, demanda_esperada=args.demanda)
         for aviso in r.avisos:
             logging.warning(aviso)
         print(f"{r.camas_tablero} camas del tablero, {r.entregas} entregas, {r.sugerencias} sugerencias.")
@@ -119,6 +130,29 @@ def main(argv: list[str] | None = None) -> int:
             gmail.enviar(args.enviar, f"UCI CONTROL AI · {fecha:%d/%m/%Y}", r.html_correo,
                          {r.archivos["html"].name: r.archivos["html"].read_bytes()})
             print(f"Enviado a {', '.join(args.enviar)}")
+        return 0
+
+    if args.comando == "camas":
+        import json
+        from dataclasses import asdict
+
+        from .camas import gestionar_camas
+        from .diario import leer_tableros
+
+        pacientes = leer_tableros([(r.name, r.read_bytes()) for r in args.tablero])
+        if not pacientes:
+            parser.error("Los tableros no traen pacientes")
+        fecha = max(p.fecha for p in pacientes)
+        plan = gestionar_camas(fecha, pacientes, args.historial, args.camas_totales, args.demanda)
+        args.salida.mkdir(parents=True, exist_ok=True)
+        ruta = args.salida / f"camas_{fecha.isoformat()}.json"
+        ruta.write_text(json.dumps(asdict(plan), ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        print(f"Nivel {plan.nivel} ({plan.nivel_nombre}). {plan.libres} libres + {plan.egresos_esperados} egresos esperados "
+              f"- {plan.demanda_esperada} ingresos esperados = brecha {plan.brecha:+}.")
+        for p in plan.pacientes:
+            if p.estado != "no":
+                print(f"  {p.cama}: {p.estado} -> {p.destino}; {', '.join(b['nombre'] for b in p.barreras)}")
+        print(f"Datos: {ruta}")
         return 0
 
     if args.comando == "riesgo":

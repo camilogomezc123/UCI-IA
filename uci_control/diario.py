@@ -23,6 +23,7 @@ from .conectores.gmail import FuenteCorreos
 from .conectores.orbit_tablero import PacienteTablero, censo_desde_tablero, leer_tablero
 from .informe import a_json, a_markdown
 from .informe_html import correo, pagina
+from .camas import gestionar_camas
 from .informe_riesgo import a_markdown as riesgo_md, construir
 from .orquestador import Orquestador
 from .prediccion import sugerir
@@ -61,7 +62,9 @@ def leer_tableros(adjuntos: list[tuple[str, bytes]]) -> list[PacienteTablero]:
 
 
 def correr_dia(fecha: date, fuente: FuenteCorreos, salida: Path, base_seguimiento: Path,
-               censo_csv: Path | None = None, costos_csv: Path | None = None, usar_ia: bool = False) -> ResultadoDia:
+               censo_csv: Path | None = None, costos_csv: Path | None = None, usar_ia: bool = False,
+               historial_camas: Path | None = None, camas_totales: int | None = None,
+               demanda_esperada: float | None = None) -> ResultadoDia:
     r = ResultadoDia(fecha)
     correos = list(fuente.entregas(fecha))
     entregas = []
@@ -88,6 +91,11 @@ def correr_dia(fecha: date, fuente: FuenteCorreos, salida: Path, base_seguimient
         r.avisos.append("Sin archivo de cargos: las reglas de facturación (R12, R13, R16) no se evaluaron.")
 
     riesgo = construir(pacientes)
+    plan = None
+    if pacientes:
+        plan = gestionar_camas(fecha, pacientes, historial_camas or base_seguimiento.with_name("historial_camas.sqlite"),
+                               camas_totales, demanda_esperada)
+    camas = json.loads(json.dumps(asdict(plan), default=str)) if plan else None
     base = BaseSeguimiento(base_seguimiento)
     try:
         pares = [(p.seudonimo or p.cama, s) for p in pacientes for s in sugerir(p)]
@@ -109,15 +117,15 @@ def correr_dia(fecha: date, fuente: FuenteCorreos, salida: Path, base_seguimient
     datos_informe = json.loads(a_json(informe))
     archivos = {
         "markdown": (salida / f"{nombre}.md", md),
-        "json": (salida / f"{nombre}.json", json.dumps({"informe": datos_informe, "riesgo": riesgo, "adherencia": adherencia, "avisos": r.avisos},
+        "json": (salida / f"{nombre}.json", json.dumps({"informe": datos_informe, "riesgo": riesgo, "adherencia": adherencia, "camas": camas, "avisos": r.avisos},
                                                        ensure_ascii=False, indent=1, default=str)),
-        "html": (salida / f"{nombre}.html", pagina({"informe": datos_informe, "riesgo": riesgo, "adherencia": adherencia, "demo": False})),
+        "html": (salida / f"{nombre}.html", pagina({"informe": datos_informe, "riesgo": riesgo, "adherencia": adherencia, "camas": camas, "demo": False})),
     }
     for clave, (ruta, texto) in archivos.items():
         ruta.write_text(texto, encoding="utf-8")
         r.archivos[clave] = ruta
     r.archivos["pendientes"] = pendientes_csv
-    r.html_correo = correo(informe, riesgo, adherencia)
+    r.html_correo = correo(informe, riesgo, adherencia, camas)
     if r.avisos:
         r.html_correo = r.html_correo.replace("</h2>", "</h2>" + "".join(
             f'<p style="margin:4px 0;color:#c25e00">Aviso: {a}</p>' for a in r.avisos), 1)
