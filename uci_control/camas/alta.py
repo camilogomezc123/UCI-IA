@@ -76,7 +76,8 @@ class EvaluacionAlta:
 _O2_BAJO = ("AIRE", "BAJO FLUJO", "CANULA", "CÁNULA", "VENTURI", "NINGUNO")
 
 
-def evaluar_alta(p: PacienteTablero, dias_uci: float | None = None, laboratorio: dict | None = None) -> EvaluacionAlta:
+def evaluar_alta(p: PacienteTablero, dias_uci: float | None = None, laboratorio: dict | None = None,
+                 hoy: date | None = None) -> EvaluacionAlta:
     """`dias_uci` sale del historial (primer día en el tablero); sin historial se usa la estancia
     hospitalaria del tablero. `laboratorio` admite pafi, glasgow, paco2 y desde_piso."""
     ok, falta = [], []
@@ -130,4 +131,4 @@ def evaluar_alta(p: PacienteTablero, dias_uci: float | None = None, laboratorio:
         alertas.append("Cumple criterios de alta pero ORBIT sigue con criterio UCI: confirmar en la ronda")
 
     dias_hasta = 0 if estado == "listo" else 1 if estado == "casi" else max(1, ceil(_dias_restantes(p)))
-    return EvaluacionAlta(p.cama, estado, destino, ok, falta, prob, p.fecha + timedelta(days=dias_hasta), sw, alertas)
+    return EvaluacionAlta(p.cama, estado, destino, ok, falta, prob, (hoy or p.fecha) + timedelta(days=dias_hasta), sw, alertas)

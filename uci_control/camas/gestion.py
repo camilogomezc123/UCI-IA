@@ -41,7 +41,7 @@ def gestionar_camas(fecha: date, pacientes: list[PacienteTablero], historial: st
             clave = p.seudonimo or p.cama
             previa = h.trayectoria(clave, fecha)
             dias_uci = max(previa.dias_uci, p.dias_hospitalizacion or 0)
-            ev = evaluar_alta(p, dias_uci, (laboratorios or {}).get(p.cama))
+            ev = evaluar_alta(p, dias_uci, (laboratorios or {}).get(p.cama), fecha)
             bs = barreras(p) if ev.estado != "no" else []
             if previa.fecha_esperada_original and ev.estado != "no" and previa.fecha_esperada_original < fecha:
                 ev.alertas.append(f"Fecha esperada de egreso vencida ({previa.fecha_esperada_original:%d/%m})")
