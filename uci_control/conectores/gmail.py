@@ -11,7 +11,7 @@ import base64
 import email
 import re
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from email import policy
 from io import BytesIO
@@ -20,6 +20,7 @@ from typing import Iterable, Protocol
 from xml.etree import ElementTree
 
 ASUNTO_ENTREGA = re.compile(r"entrega\s+de\s+turno", re.I)
+ADJUNTO_TABLERO = re.compile(r"tablero.*\.xlsx$", re.I)
 
 
 @dataclass
@@ -29,10 +30,13 @@ class CorreoEntrega:
     fecha: str
     texto: str
     adjuntos_sin_leer: list[str]
+    tableros: list[tuple[str, bytes]] = field(default_factory=list)  # (nombre, contenido) del tablero ORBIT
 
 
 class FuenteCorreos(Protocol):
     def entregas(self, fecha: date) -> Iterable[CorreoEntrega]: ...
+
+    def tableros(self, fecha: date) -> list[tuple[str, bytes]]: ...
 
 
 class CarpetaCorreos:
@@ -45,6 +49,14 @@ class CarpetaCorreos:
             if not ASUNTO_ENTREGA.search(mensaje.get("Subject", "")):
                 continue
             yield _correo_desde_mime(ruta.name, mensaje)
+
+    def tableros(self, fecha: date) -> list[tuple[str, bytes]]:
+        """Tableros ORBIT adjuntos en cualquier correo de la carpeta."""
+        hallados = []
+        for ruta in sorted(self.carpeta.glob("*.eml")):
+            mensaje = email.message_from_bytes(ruta.read_bytes(), policy=policy.default)
+            hallados += _correo_desde_mime(ruta.name, mensaje).tableros
+        return hallados
 
 
 class GmailAPI:
@@ -66,15 +78,46 @@ class GmailAPI:
             mensaje = email.message_from_bytes(base64.urlsafe_b64decode(crudo["raw"]), policy=policy.default)
             yield _correo_desde_mime(ref["id"], mensaje)
 
+    def tableros(self, fecha: date) -> list[tuple[str, bytes]]:
+        """Tableros ORBIT ("Reporte_TableroControlUCI1<fecha>.xlsx") adjuntos en el buzón ese día."""
+        desde = fecha.strftime("%Y/%m/%d")
+        hasta = (fecha + timedelta(days=2)).strftime("%Y/%m/%d")
+        consulta = f"has:attachment filename:xlsx tablero after:{desde} before:{hasta}"
+        usuarios = self.servicio.users()
+        respuesta = usuarios.messages().list(userId="me", q=consulta, maxResults=50).execute()
+        hallados = []
+        for ref in respuesta.get("messages", []):
+            crudo = usuarios.messages().get(userId="me", id=ref["id"], format="raw").execute()
+            mensaje = email.message_from_bytes(base64.urlsafe_b64decode(crudo["raw"]), policy=policy.default)
+            hallados += _correo_desde_mime(ref["id"], mensaje).tableros
+        return hallados
+
+    def enviar(self, destinatarios: list[str], asunto: str, html: str, adjuntos: dict[str, bytes] | None = None) -> str:
+        """Envía el informe. Requiere además el alcance gmail.send."""
+        from email.message import EmailMessage
+
+        m = EmailMessage()
+        m["To"] = ", ".join(destinatarios)
+        m["Subject"] = asunto
+        m.set_content("Este correo tiene formato HTML. Abra el adjunto para ver el informe completo.")
+        m.add_alternative(html, subtype="html")
+        for nombre, datos in (adjuntos or {}).items():
+            m.add_attachment(datos, maintype="text", subtype="html", filename=nombre)
+        crudo = base64.urlsafe_b64encode(bytes(m)).decode()
+        return self.servicio.users().messages().send(userId="me", body={"raw": crudo}).execute()["id"]
+
 
 def _correo_desde_mime(identificador: str, mensaje) -> CorreoEntrega:
-    partes, sin_leer = [], []
+    partes, sin_leer, tableros = [], [], []
     cuerpo = mensaje.get_body(preferencelist=("plain",))
     if cuerpo is not None:
         partes.append(cuerpo.get_content())
     for adjunto in mensaje.iter_attachments():
         nombre = adjunto.get_filename() or "adjunto"
         datos = adjunto.get_payload(decode=True) or b""
+        if ADJUNTO_TABLERO.search(nombre):
+            tableros.append((nombre, datos))
+            continue
         texto = texto_de_adjunto(nombre, datos)
         if texto is None:
             sin_leer.append(nombre)
@@ -86,6 +129,7 @@ def _correo_desde_mime(identificador: str, mensaje) -> CorreoEntrega:
         fecha=mensaje.get("Date", ""),
         texto="\n\n".join(partes),
         adjuntos_sin_leer=sin_leer,
+        tableros=tableros,
     )
 
 

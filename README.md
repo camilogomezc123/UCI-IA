@@ -38,6 +38,10 @@ python -m uci_control riesgo --tablero Reporte_TableroControlUCI1.xlsx --salida 
 
 Los puntajes son reglas a partir de escalas validadas; no están calibrados con desenlaces de la clínica hasta tener egreso, muerte y estancia final por episodio.
 
+## Corrida diaria y seguimiento
+
+`python -m uci_control diario` lee del buzón las entregas y los tableros de ORBIT, genera el informe (Markdown, JSON y HTML interactivo), registra las sugerencias en una base de seguimiento y, con `--enviar`, lo manda por correo. El equipo marca cada sugerencia como hecha o no aplica (`seguimiento marcar` o el Excel de pendientes) y el informe muestra cuántos días lleva abierta cada una y la adherencia por servicio. Instalación, acceso a Gmail y programación: [docs/OPERACION.md](docs/OPERACION.md).
+
 ## Reglas de discrepancia
 
 | Regla | Qué detecta | Severidad |
@@ -52,7 +56,7 @@ Los puntajes son reglas a partir de escalas validadas; no están calibrados con 
 | R08 | Dispositivo de más de 7 días sin justificación (más de 30: alta) | Media / Alta |
 | R09 | Pendiente de más de 72 h; autorización de más de 24 h | Media / Alta |
 | R10 | Aislamiento declarado en una sola fuente | Alta |
-| R11 | NEWS o SOFA vacíos o con formato inválido (por ejemplo, SOFA en %) | Baja |
+| R11 | NEWS o SOFA vacíos o con formato inválido (por ejemplo, un SOFA "35%"; el rango "32-35%" del tablero se acepta) | Baja |
 | R12 | Cama ocupada sin cargo de estancia | Alta |
 | R13 | Cargo de estancia sin cama ocupada | Media |
 | R14 | Paciente en condición piso, sin soporte, ocupando cama UCI | Media |
@@ -95,5 +99,4 @@ El modelo por defecto es `claude-opus-5-5` (se cambia con `UCI_MODELO_CLAUDE`). 
 - Ajustar el conector ORBIT al formato real de la exportación del panel.
 - Adaptar el parser al formato UCIFM041 actual (tabla de dispositivos, Padua y condición) o adoptar la plantilla estructurada propuesta.
 - Leer adjuntos .doc.
-- Programar la corrida diaria y enviar el informe por correo.
 - Serie histórica con los tableros ORBIT y exportación estructurada de laboratorios, cultivos, antibióticos, balance de líquidos y desenlaces, para calibrar los modelos.

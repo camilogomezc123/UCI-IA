@@ -3,7 +3,13 @@ name = "uci-control-ai"
 version = "0.1.0"
 description = "Agente de coordinación UCI: concilia ORBIT, entregas de turno y costos, y prioriza el día"
 requires-python = ">=3.10"
-dependencies = ["anthropic>=2.3.0"]
+dependencies = ["anthropic>=2.3.0", "pandas>=2.2", "openpyxl>=3.1", "scikit-learn>=1.4"]
+
+[project.optional-dependencies]
+gmail = ["google-api-python-client>=2.100", "google-auth-oauthlib>=1.2"]
+
+[tool.setuptools.package-data]
+uci_control = ["plantillas/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

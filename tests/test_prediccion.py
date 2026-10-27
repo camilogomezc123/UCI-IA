@@ -20,14 +20,14 @@ def acciones(p):
 
 
 def test_lectura_tablero(tablero):
-    p = tablero["U1"]
+    p = tablero["U63"]
     assert p.fecha == date(2026, 10, 27)
     assert p.vmi and p.vasoactivo and p.dependiente
     assert p.sofa_mortalidad == pytest.approx(0.45)
     assert p.dias_vmi() == 17
     assert {a.nombre for a in p.antimicrobianos} == {"Meropenem", "Vancomicina"}  # la ceftriaxona es previa
     assert p.seudonimo and "SINT" not in p.seudonimo
-    assert not tablero["U2"].dependiente  # "INDEPENDIENTE" no cuenta
+    assert not tablero["U74"].dependiente  # "INDEPENDIENTE" no cuenta
 
 
 def test_utilidades():
@@ -38,27 +38,27 @@ def test_utilidades():
 
 
 def test_riesgo(tablero):
-    ev = evaluar(tablero["U1"])
+    ev = evaluar(tablero["U63"])
     assert ev.mortalidad.nivel == "alto" and ev.deterioro.nivel == "alto" and ev.infeccion.nivel == "alto"
     assert ev.agrupador == "INFECCIOSO"
-    assert evaluar(tablero["U2"]).egreso_proximo.nivel == "alto"
-    assert any("no es coherente" in a for a in evaluar(tablero["U4"]).alertas)
+    assert evaluar(tablero["U74"]).egreso_proximo.nivel == "alto"
+    assert any("no es coherente" in a for a in evaluar(tablero["U75"]).alertas)
 
 
 def test_sugerencias(tablero):
-    a1 = acciones(tablero["U1"])
+    a1 = acciones(tablero["U63"])
     assert ("Cirugía de cabeza y cuello / cirugía general", "Valorar traqueostomía") in a1
     assert ("Infectología / PROA", "Revisión conjunta del esquema antimicrobiano") in a1
     assert ("Trabajo social", "Planear egreso con red de apoyo y cuidador") in a1
     assert ("Imágenes", "Destrabar pendiente") in a1
-    assert ("Gestor de camas", "Gestionar traslado a hospitalización hoy") in acciones(tablero["U2"])
-    a3 = acciones(tablero["U3"])
+    assert ("Gestor de camas", "Gestionar traslado a hospitalización hoy") in acciones(tablero["U74"])
+    a3 = acciones(tablero["U73"])
     assert ("Fonoaudiología", "Valoración de deglución para iniciar vía oral") in a3
     assert ("Autorizaciones / cartera", "Verificar garantía de pago y autorización vigente") in a3
     assert ("Cuidado paliativo", "Conferencia familiar y definición de metas de cuidado") in a3  # oncológico, SOFA 30-35%
     assert ("Médico UCI", "Documentar cultivos y su resultado en ORBIT") in a3
-    assert ("Médico UCI", "Corregir el criterio de atención en ORBIT") in acciones(tablero["U4"])
-    assert not any(s.servicio == "Trabajo social" for s in sugerir(tablero["U2"]))
+    assert ("Médico UCI", "Corregir el criterio de atención en ORBIT") in acciones(tablero["U75"])
+    assert not any(s.servicio == "Trabajo social" for s in sugerir(tablero["U74"]))
 
 
 def test_erlang_y_escenarios():

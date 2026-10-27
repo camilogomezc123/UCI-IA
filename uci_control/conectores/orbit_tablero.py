@@ -20,6 +20,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from ..fechas import leer_fecha
+from ..modelos import Condicion, RegistroOrbit
 from .comun import normalizar_cama, sin_tildes
 
 # Antimicrobianos que se buscan en el texto libre. Los de uso restringido piden revisión de PROA.
@@ -78,6 +79,7 @@ class PacienteTablero:
     fecha_intubacion: date | None = None
     pendientes: list[str] = field(default_factory=list)
     texto: str = ""  # diagnósticos + observaciones + metas + dieta, para reglas de texto
+    sofa_texto: str | None = None  # como lo exporta ORBIT, por ejemplo "32-35%"
 
     @property
     def vmi(self) -> bool:
@@ -230,5 +232,20 @@ def leer_tablero(ruta: str | Path) -> list[PacienteTablero]:
             fecha_intubacion=leer_fecha(intub.group(1), fecha)[0] if intub else None,
             pendientes=[re.sub(r"\s+", " ", p).strip() for p in _PENDIENTE.findall(texto)],
             texto=texto,
+            sofa_texto=_texto(f.get("SOFA")).strip() or None,
         ))
     return pacientes
+
+
+def censo_desde_tablero(pacientes: list[PacienteTablero], unidad: str = "") -> list[RegistroOrbit]:
+    """Censo de camas ocupadas a partir del tablero, para correr la conciliación sin la
+    exportación CSV del censo. El tablero solo trae camas ocupadas."""
+    criterio = {"UCI": Condicion.UCI, "UCIN": Condicion.UCIN, "OTROS": Condicion.PISO}
+    return [
+        RegistroOrbit(
+            cama=p.cama, unidad=unidad, fecha=p.fecha, ocupada=True, criterio=criterio[p.criterio],
+            vmi=p.vmi, vasopresor=p.vasoactivo,
+            news=f"{p.news:.0f}" if p.news is not None else None, sofa=p.sofa_texto,
+        )
+        for p in pacientes
+    ]

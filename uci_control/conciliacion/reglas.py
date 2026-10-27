@@ -175,6 +175,8 @@ def r11_escalas(exp, ctx):
         problemas.append(f"NEWS con formato inválido («{o.news}»)")
     if not o.sofa:
         problemas.append("SOFA vacío")
+    elif re.fullmatch(r"\d{1,3}\s*-\s*\d{1,3}\s*%", o.sofa.strip()):
+        pass  # el tablero de ORBIT exporta el SOFA como rango de mortalidad esperada
     elif not re.fullmatch(r"\d{1,2}", o.sofa.strip()) or int(o.sofa.strip()) > 24:
         problemas.append(f"SOFA con formato inválido («{o.sofa}»; se espera un puntaje de 0 a 24)")
     if problemas:
