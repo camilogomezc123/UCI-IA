@@ -1,0 +1,229 @@
+<title>UCI CONTROL AI</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: barra de unidad fija arriba, pestañas, contenido en una columna de 1080px con tarjetas solo donde hay un paciente o una alerta */
+:root{
+  --bg:#f5f7f7; --panel:#ffffff; --fg:#14211f; --muted:#5b6b69; --line:#dfe5e4;
+  --accent:#0d6b73; --accent-soft:#e2f0f0;
+  --crit:#b3261e; --crit-soft:#fbe9e7; --high:#c25e00; --high-soft:#fdf0e3; --med:#8a6d00; --med-soft:#fbf5dc; --low:#2e6b3a; --low-soft:#e6f2e8;
+  --f-body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --f-data:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1716; --panel:#16211f; --fg:#e4ecea; --muted:#94a6a3; --line:#27342f;
+  --accent:#5cc2c9; --accent-soft:#163536;
+  --crit:#ff8a80; --crit-soft:#3a1916; --high:#ffb168; --high-soft:#3a2513; --med:#e3c552; --med-soft:#332c10; --low:#86cf94; --low-soft:#16301c; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1716; --panel:#16211f; --fg:#e4ecea; --muted:#94a6a3; --line:#27342f;
+  --accent:#5cc2c9; --accent-soft:#163536;
+  --crit:#ff8a80; --crit-soft:#3a1916; --high:#ffb168; --high-soft:#3a2513; --med:#e3c552; --med-soft:#332c10; --low:#86cf94; --low-soft:#16301c; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px;display:flex;flex-direction:column;gap:20px}
+header.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:baseline;justify-content:space-between}
+h1{font-size:24px;margin:0;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:17px;margin:0 0 10px;font-weight:600}
+.sub{color:var(--muted);font-size:14px}
+.demo{background:var(--accent-soft);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:10px 14px;font-size:14px}
+.demo b{color:var(--accent)}
+nav.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);overflow-x:auto}
+nav.tabs button{font:inherit;font-weight:600;background:none;border:0;border-bottom:3px solid transparent;color:var(--muted);padding:10px 14px;cursor:pointer;white-space:nowrap}
+nav.tabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.kpi .v{font-family:var(--f-data);font-size:24px;font-weight:500;font-variant-numeric:tabular-nums}
+.kpi .l{color:var(--muted);font-size:13px}
+.resumen{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;max-width:none}
+.resumen p{margin:0;max-width:75ch}
+.nivel{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;border-radius:6px;padding:12px 16px;border-left:6px solid var(--n);background:var(--panel);border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.nivel .t{font-size:18px;font-weight:700;color:var(--n)}
+.nivel ul{margin:0;padding-left:18px;flex-basis:100%;font-size:14px}
+.n1{--n:var(--low)}.n2{--n:var(--med)}.n3{--n:var(--high)}.n4{--n:var(--crit)}
+.ecuacion{font-family:var(--f-data);font-size:15px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 14px;overflow-x:auto;white-space:nowrap}
+.p-listo{background:var(--low-soft);color:var(--low)}.p-casi{background:var(--med-soft);color:var(--med)}
+.alert{display:flex;gap:12px;align-items:flex-start;background:var(--crit-soft);border-left:4px solid var(--crit);border-radius:4px;padding:10px 14px}
+.alert .tag{font-family:var(--f-data);font-size:12px;color:var(--crit);font-weight:500;text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.list{display:flex;flex-direction:column;gap:10px}
+.tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+table{border-collapse:collapse;width:100%;min-width:720px;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+.mono{font-family:var(--f-data);font-variant-numeric:tabular-nums}
+.pill{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.p-critica,.p-alto,.p-inmediata,.p-inmediato{background:var(--crit-soft);color:var(--crit)}
+.p-alta,.p-hoy{background:var(--high-soft);color:var(--high)}
+.p-media,.p-medio,.p-48h{background:var(--med-soft);color:var(--med)}
+.p-baja,.p-bajo,.p-semana{background:var(--low-soft);color:var(--low)}
+.p-sin{background:var(--line);color:var(--muted)}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+select{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg)}
+.pac-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:14px}
+.pac{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.pac-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline}
+.cama{font-family:var(--f-data);font-size:20px;font-weight:500}
+.riesgos{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.r{border:1px solid var(--line);border-radius:4px;padding:6px 6px;text-align:center;min-width:0}
+.r .n{font-size:11px;color:var(--muted);line-height:1.2}
+.r .pill{margin-top:4px}
+.sug{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.sug li{display:grid;grid-template-columns:86px 1fr;gap:10px;font-size:14px;align-items:start}
+.sug li>.pill{justify-self:start}
+.sug .srv{color:var(--muted);font-size:13px}
+.valor{font-size:13px;color:var(--muted)}
+.cod{font-family:var(--f-data);font-size:12px;color:var(--muted)}
+.vieja{color:var(--crit);font-weight:600}
+.alerta-pac{font-size:13px;color:var(--crit)}
+details summary{cursor:pointer;color:var(--accent);font-size:13px;font-weight:600}
+details ul{margin:6px 0 0;padding-left:18px;font-size:13px;color:var(--muted)}
+footer{color:var(--muted);font-size:13px;max-width:75ch}
+@media (max-width:560px){.riesgos{grid-template-columns:repeat(3,1fr)}.sug li{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:no-preference){nav.tabs button{transition:color .15s,border-color .15s}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>UCI CONTROL AI</h1>
+      <div class="sub" id="fecha"></div>
+    </div>
+    <div class="sub">Fuentes: ORBIT · entregas de turno · facturación</div>
+  </header>
+  <div class="demo" id="demo" hidden><b>Demo con datos sintéticos.</b> Ningún paciente es real.</div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="t-camas" aria-selected="true" data-v="camas">Camas y egresos</button>
+    <button role="tab" id="t-informe" aria-selected="false" data-v="informe">Informe del día</button>
+    <button role="tab" id="t-pacientes" aria-selected="false" data-v="pacientes">Riesgo por paciente</button>
+    <button role="tab" id="t-seguimiento" aria-selected="false" data-v="seguimiento">Seguimiento</button>
+    <button role="tab" id="t-discrepancias" aria-selected="false" data-v="discrepancias">Discrepancias</button>
+  </nav>
+
+  <section id="v-camas" class="list" style="gap:20px"></section>
+  <section id="v-informe" class="list" style="gap:20px" hidden></section>
+  <section id="v-pacientes" class="list" hidden></section>
+  <section id="v-seguimiento" class="list" hidden></section>
+  <section id="v-discrepancias" class="list" hidden></section>
+
+  <footer>Las sugerencias apoyan la gestión; la decisión clínica es del médico tratante. Los puntajes de riesgo no están calibrados todavía con desenlaces de la clínica. Los pacientes se identifican solo por cama.</footer>
+</div>
+
+<script>
+const DATOS = /*DATOS*/null;
+const INFORME = DATOS.informe, RIESGO = DATOS.riesgo, ADHERENCIA = DATOS.adherencia || [], CAMAS = DATOS.camas;
+document.getElementById("demo").hidden = !DATOS.demo;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pesos = v => "$" + Math.round(v).toLocaleString("es-CO");
+const ESTADO = {pendiente:"pendiente", hecho:"hecho", no_aplica:"no aplica", resuelta:"resuelta"};
+const pill = (t, label) => `<span class="pill p-${esc(t)}">${esc(label ?? t)}</span>`;
+const RESP = {medico_uci:"Médico UCI", enfermeria:"Enfermería", facturacion:"Facturación", sistemas:"Sistemas", infectologia_proa:"Infectología / PROA", gestor_camas:"Gestor de camas", coordinacion:"Coordinación", autorizaciones:"Autorizaciones"};
+const resp = r => RESP[r] || (r ? r.replace(/_/g," ").replace(/^./, c => c.toUpperCase()) : "");
+
+document.getElementById("fecha").textContent = "Informe del " + new Date(INFORME.fecha + "T12:00:00").toLocaleDateString("es-CO", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+
+function camas(){
+  const el = document.getElementById("v-camas");
+  if (!CAMAS) { el.innerHTML = `<p class="sub">No llegó tablero de ORBIT: sin plan de camas hoy.</p>`; return; }
+  const c = CAMAS, f = c.flujo || {};
+  const salir = c.pacientes.filter(p => p.estado !== "no"), resto = c.pacientes.filter(p => p.estado === "no");
+  const fecha = d => d ? new Date(d + "T12:00:00").toLocaleDateString("es-CO", {day:"numeric", month:"short"}) : "—";
+  const kpis = [
+    [c.listos, "listos para salir hoy"], [c.listos_sin_salir_mas_de_un_dia, "listos desde ayer o antes"],
+    [c.estancados, "con 7 días o más"], [c.muy_estancados, "con 21 días o más"],
+    [pesos(c.valor_bloqueado_hoy), "en días UCI de pacientes listos"], [c.ingresos_perdidos_estimados.toLocaleString("es-CO"), "ingresos que hoy no tendrían cama"],
+  ];
+  el.innerHTML = `
+    <div class="nivel n${c.nivel}"><span class="t">Nivel ${c.nivel} · ${esc(c.nivel_nombre)}</span><span class="sub">${c.ocupadas} de ${c.camas_totales} camas ocupadas</span>
+      <ul>${c.acciones_nivel.map(a => `<li>${esc(a)}</li>`).join("")}</ul></div>
+    <div class="ecuacion">${c.libres} libres + ${c.egresos_esperados.toLocaleString("es-CO")} egresos esperados − ${c.demanda_esperada.toLocaleString("es-CO")} ingresos esperados = <b>${c.brecha > 0 ? "+" : ""}${c.brecha.toLocaleString("es-CO")} camas</b></div>
+    <div class="kpis">${kpis.map(([v,l]) => `<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`).join("")}</div>
+    <div class="list"><h2>Pacientes para egresar, en orden</h2>
+      <div class="tablewrap"><table><thead><tr><th>Cama</th><th>Estado</th><th>Destino</th><th>Días UCI</th><th>Egreso esperado</th><th>Barrera</th><th>Qué hacer</th></tr></thead><tbody>${salir.map(p =>
+        `<tr><td class="mono">${esc(p.cama)}</td><td>${pill(p.estado)}${p.dias_listo_sin_salir ? `<div class="vieja" style="font-size:12px">${p.dias_listo_sin_salir} d sin salir</div>` : ""}</td><td>${esc(p.destino)}</td><td class="mono">${p.dias_uci}</td><td class="mono">${fecha(p.fecha_esperada_egreso)}</td><td>${p.barreras.map(b => esc(b.nombre)).join("<br>")}</td><td><ul class="sug" style="gap:4px">${p.acciones.map(a => `<li style="display:block">${esc(a)}</li>`).join("")}</ul></td></tr>`).join("") || `<tr><td colspan="7" class="sub">Ningún paciente cumple hoy criterios de alta.</td></tr>`}</tbody></table></div></div>
+    ${c.barreras_frecuentes.length ? `<div class="list"><h2>Barreras de los pacientes listos</h2><div class="tablewrap"><table><thead><tr><th>Barrera</th><th>Pacientes</th><th>Responsable</th><th>Escalamiento</th></tr></thead><tbody>${c.barreras_frecuentes.map(b => `<tr><td>${esc(b.nombre)}</td><td class="mono">${b.pacientes}</td><td>${esc(b.responsable)}</td><td>${esc(b.escalamiento)}</td></tr>`).join("")}</tbody></table></div></div>` : ""}
+    ${f.dias_con_datos >= 2 ? `<div class="list"><h2>Flujo de los últimos 30 días</h2><div class="kpis">
+      <div class="kpi"><div class="v">${f.egresos_detectados}</div><div class="l">egresos detectados</div></div>
+      <div class="kpi"><div class="v">${f.listos_que_salieron_al_dia_siguiente_pct ?? "—"}${f.listos_que_salieron_al_dia_siguiente_pct != null ? "%" : ""}</div><div class="l">de los pacientes listos salió al día siguiente</div></div>
+      <div class="kpi"><div class="v">${f.dias_cama_rojos}</div><div class="l">días-cama rojos (listo y no salió)</div></div></div></div>` : `<p class="sub" style="margin:0">Los indicadores de flujo aparecen desde el segundo día de historial.</p>`}
+    <div class="list"><h2>Siguen necesitando UCI</h2><p class="sub" style="margin:0">${resto.map(p => `<span class="mono">${esc(p.cama)}</span> egreso esperado ${fecha(p.fecha_esperada_egreso)}`).join(" · ") || "Ninguno"}</p></div>`;
+}
+
+function informe(){
+  const i = INFORME.indicadores, f = i.financiero;
+  const kpis = [
+    [`${i.camas_ocupadas}/${i.camas_en_censo}`, `camas ocupadas (${i.ocupacion_pct.toLocaleString("es-CO")}%)`],
+    [i.condicion.PISO, `en condición piso (${i.condicion_piso_pct.toLocaleString("es-CO")}%)`],
+    [i.ventilacion_invasiva, "con ventilación invasiva"],
+    [i.soporte_vasoactivo, "con soporte vasoactivo"],
+    [i.discrepancias_por_severidad.critica + i.discrepancias_por_severidad.alta, "discrepancias críticas o altas"],
+    [pesos(f.costo_estancia_evitable_dia_cop), "estancia evitable hoy"],
+  ];
+  const resps = [...new Set(INFORME.prioridades.map(p => p.responsable))];
+  document.getElementById("v-informe").innerHTML = `
+    <div class="kpis">${kpis.map(([v,l]) => `<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`).join("")}</div>
+    <div class="resumen"><h2>Resumen</h2><p>${esc(INFORME.resumen)}</p></div>
+    <div class="list"><h2>Alertas críticas</h2>${INFORME.alertas.map(a => `<div class="alert"><span class="tag">${esc(a.nivel)}</span><div>${esc(a.mensaje)}${a.camas.length ? ` <span class="mono">· ${esc(a.camas.join(", "))}</span>` : ""}</div></div>`).join("")}</div>
+    <div class="list">
+      <div class="toolbar"><h2 style="margin:0">Prioridades del día</h2>
+        <label class="sub" for="f-resp">Responsable</label>
+        <select id="f-resp"><option value="">Todos (${INFORME.prioridades.length})</option>${resps.map(r => `<option value="${esc(r)}">${esc(resp(r))}</option>`).join("")}</select>
+      </div>
+      <div class="tablewrap"><table><thead><tr><th>#</th><th>Cama</th><th>Acción</th><th>Responsable</th><th>Plazo</th></tr></thead><tbody id="prio"></tbody></table></div>
+    </div>`;
+  const pintar = () => {
+    const r = document.getElementById("f-resp").value;
+    document.getElementById("prio").innerHTML = INFORME.prioridades.filter(p => !r || p.responsable === r).map(p =>
+      `<tr><td class="mono">${p.orden}</td><td class="mono">${esc(p.cama)}</td><td>${esc(p.accion)}<div class="sub">${esc(p.motivo)}</div></td><td>${esc(resp(p.responsable))}</td><td>${pill(p.plazo)}</td></tr>`).join("");
+  };
+  document.getElementById("f-resp").addEventListener("change", pintar);
+  pintar();
+}
+
+function pacientes(){
+  const NOMBRES = [["mortalidad","Mortalidad"],["deterioro","Deterioro"],["estancia_prolongada","Estancia larga"],["infeccion","Infección"],["egreso_proximo","Egreso próximo"]];
+  const total = RIESGO.reduce((s, p) => s + p.evaluacion.valor_en_juego, 0);
+  const nSug = RIESGO.reduce((s, p) => s + p.sugerencias.length, 0);
+  document.getElementById("v-pacientes").innerHTML = `
+    <p class="sub" style="margin:0">${RIESGO.length} pacientes del tablero de ORBIT · ${nSug} sugerencias · valor estimado de los días que faltan: <span class="mono">${pesos(total)}</span></p>
+    <div class="pac-grid">${RIESGO.map(p => {
+      const e = p.evaluacion;
+      return `<article class="pac">
+        <div class="pac-head"><span class="cama">${esc(p.cama)}</span><span class="sub">Criterio ${esc(p.criterio)} · ${esc(e.agrupador.toLowerCase())}</span></div>
+        <div class="riesgos">${NOMBRES.map(([k, n]) => { const r = e[k]; const t = r.nivel === "sin dato" ? "sin" : r.nivel;
+          return `<div class="r" title="${esc(r.factores.join(" · ") || "Sin factores")}"><div class="n">${n}</div>${pill(t, r.nivel)}</div>`; }).join("")}</div>
+        ${e.alertas.map(a => `<div class="alerta-pac">⚠ ${esc(a)}</div>`).join("")}
+        <ul class="sug">${p.sugerencias.map(s => `<li>${pill(s.prioridad)}<div>${esc(s.accion)}<div class="srv">${esc(s.servicio)} · ${esc(s.motivo)}</div>${s.seguimiento ? `<div class="cod">${esc(s.seguimiento.id)} · ${s.seguimiento.estado !== "pendiente" ? pill(s.seguimiento.estado === "hecho" ? "bajo" : "sin", ESTADO[s.seguimiento.estado]) : s.seguimiento.dias_abierta ? `<span class="${s.seguimiento.dias_abierta >= 2 ? "vieja" : ""}">abierta hace ${s.seguimiento.dias_abierta} día${s.seguimiento.dias_abierta === 1 ? "" : "s"}</span>` : "nueva hoy"}</div>` : ""}</div></li>`).join("")}</ul>
+        <details><summary>Por qué estos niveles</summary><ul>${NOMBRES.map(([k, n]) => `<li><b>${n}:</b> ${esc(e[k].factores.join("; ") || "sin factores")}</li>`).join("")}</ul></details>
+        <div class="valor">Días estimados que faltan: <span class="mono">${e.dias_restantes_estimados.toLocaleString("es-CO")}</span> · valor en juego: <span class="mono">${pesos(e.valor_en_juego)}</span></div>
+      </article>`; }).join("")}</div>`;
+}
+
+function discrepancias(){
+  const ds = INFORME.discrepancias;
+  document.getElementById("v-discrepancias").innerHTML = `
+    <p class="sub" style="margin:0">${ds.length} discrepancias entre ORBIT, la entrega de turno y la facturación, de la más grave a la menos grave.</p>
+    <div class="tablewrap"><table><thead><tr><th>ID</th><th>Severidad</th><th>Cama</th><th>Qué encontró</th><th>Fuentes</th></tr></thead><tbody>${ds.map(d =>
+      `<tr><td class="mono">${esc(d.id)}<div class="sub">${esc(d.regla)}</div></td><td>${pill(d.severidad)}</td><td class="mono">${esc(d.cama || "Unidad")}</td><td><b>${esc(d.titulo)}</b><div class="sub">${esc(d.detalle)}</div></td><td>${esc((d.fuentes || []).join(", "))}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function seguimiento(){
+  const abiertas = RIESGO.flatMap(p => p.sugerencias.filter(s => s.seguimiento && s.seguimiento.estado === "pendiente").map(s => ({...s, ...s.seguimiento}))).sort((a, b) => b.dias_abierta - a.dias_abierta);
+  const fila = d => `<tr><td>${esc(d.servicio)}</td><td class="mono">${d.total}</td><td class="mono">${d.hecho}</td><td class="mono">${d.no_aplica}</td><td class="mono">${d.resuelta}</td><td class="mono">${d.pendiente}</td><td class="mono">${d.gestionadas_pct.toLocaleString("es-CO")}%</td><td class="mono">${d.mediana_dias_a_hecho ?? "—"}</td></tr>`;
+  document.getElementById("v-seguimiento").innerHTML = `
+    <div class="list"><h2>Sugerencias pendientes, de la más antigua a la más nueva</h2>
+    <p class="sub" style="margin:0">Para cerrar una, cambie su estado a hecho o no aplica en el Excel de pendientes que llega con el informe, o márquela por código con <span class="mono">seguimiento marcar CÓDIGO hecho</span>.</p>
+    <div class="tablewrap"><table><thead><tr><th>Código</th><th>Cama</th><th>Servicio</th><th>Acción</th><th>Abierta</th></tr></thead><tbody>${abiertas.map(s =>
+      `<tr><td class="mono">${esc(s.id)}</td><td class="mono">${esc(s.cama)}</td><td>${esc(s.servicio)}</td><td>${esc(s.accion)}<div class="sub">${esc(s.motivo)}</div></td><td class="mono ${s.dias_abierta >= 2 ? "vieja" : ""}">${s.dias_abierta ? s.dias_abierta + " d" : "hoy"}</td></tr>`).join("")}</tbody></table></div></div>
+    <div class="list"><h2>Adherencia acumulada por servicio</h2>
+    <p class="sub" style="margin:0">Gestionadas = hechas más no aplica. Resueltas = la condición desapareció del tablero sin que nadie la marcara.</p>
+    <div class="tablewrap"><table><thead><tr><th>Servicio</th><th>Total</th><th>Hechas</th><th>No aplica</th><th>Resueltas</th><th>Pendientes</th><th>Gestionadas</th><th>Mediana días a hecho</th></tr></thead><tbody>${ADHERENCIA.map(fila).join("") || `<tr><td colspan="8" class="sub">Todavía no hay historia: la adherencia se llena a partir del segundo día.</td></tr>`}</tbody></table></div></div>`;
+}
+
+camas(); informe(); pacientes(); seguimiento(); discrepancias();
+document.querySelectorAll("nav.tabs button").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("nav.tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+  ["camas","informe","pacientes","seguimiento","discrepancias"].forEach(v => document.getElementById("v-" + v).hidden = v !== b.dataset.v);
+}));
+</script>

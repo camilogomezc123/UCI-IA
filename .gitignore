@@ -9,3 +9,9 @@ datos_reales/
 .env
 credentials*.json
 token*.json
+client_secret*.json
+parametros*.json
+*.sqlite
+pendientes_*.csv
+demo/
+.venv/
