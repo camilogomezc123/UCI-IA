@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Demo: generar datos sintéticos",
+      "type": "debugpy", "request": "launch", "module": "uci_control",
+      "args": ["datos-prueba", "--salida", "demo"]
+    },
+    {
+      "name": "Demo: corrida diaria con datos sintéticos",
+      "type": "debugpy", "request": "launch", "module": "uci_control",
+      "args": ["diario", "--fecha", "2026-10-26", "--correos", "demo/correos", "--orbit", "demo/orbit_censo.csv",
+               "--costos", "demo/cargos.csv", "--seguimiento", "demo/seguimiento.sqlite", "--camas-totales", "20", "--salida", "demo/salida"]
+    },
+    {
+      "name": "Plan de camas con un tablero",
+      "type": "debugpy", "request": "launch", "module": "uci_control",
+      "args": ["camas", "--tablero", "${input:tablero}", "--historial", "historial_camas.sqlite", "--salida", "salida"]
+    },
+    {
+      "name": "Pruebas",
+      "type": "debugpy", "request": "launch", "module": "pytest", "args": ["-q"]
+    }
+  ],
+  "inputs": [
+    { "id": "tablero", "type": "promptString", "description": "Ruta del Reporte_TableroControlUCI1<fecha>.xlsx" }
+  ]
+}

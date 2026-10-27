@@ -70,6 +70,19 @@ Los puntajes son reglas a partir de escalas validadas; no están calibrados con 
 
 Agregar una regla es escribir una función en `uci_control/conciliacion/reglas.py` y sumarla a `REGLAS`.
 
+## Empezar en Visual Studio Code
+
+```bash
+git clone https://github.com/camilogomezc123/UCI-IA.git
+cd UCI-IA
+python -m venv .venv
+# Windows: .venv\Scripts\activate    macOS/Linux: source .venv/bin/activate
+pip install -r requirements-gmail.txt
+code .
+```
+
+En VS Code: instalar las extensiones recomendadas (Python y Claude Code), elegir el intérprete `.venv`, y en "Ejecutar y depurar" correr primero **Demo: generar datos sintéticos** y luego **Demo: corrida diaria con datos sintéticos**. El informe queda en `demo/salida/uci_2026-10-26.html`. Las pruebas están en la pestaña de pruebas o con `python -m pytest`.
+
 ## Uso
 
 ```bash
