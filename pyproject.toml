@@ -1,0 +1,9 @@
+[project]
+name = "uci-control-ai"
+version = "0.1.0"
+description = "Agente de coordinación UCI: concilia ORBIT, entregas de turno y costos, y prioriza el día"
+requires-python = ">=3.10"
+dependencies = ["anthropic>=2.3.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
