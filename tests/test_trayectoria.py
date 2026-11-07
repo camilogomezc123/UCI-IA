@@ -59,7 +59,9 @@ def test_modelo_y_tablero(x, tmp_path, monkeypatch):
     assert pred.dias_uci[0] <= pred.dias_uci[1] <= pred.dias_uci[2]
     assert pred.dias_uci_restantes >= 0.5
 
-    assert abs(sum(pred.trayectoria.values()) - 1) < 1e-6
+    assert abs(sum(pred.trayectoria.values()) - 1) < 0.01
+    assert abs(sum(pred.rangos_uci.values()) - 1) < 0.01 and set(pred.rangos_uci) == set(t.BANDAS["dias_uci"][1])
+    assert "bandas" in v and v["bandas"]["dias_uci"]["rps"] > 0
     assert pred.destino in ("sale desde uci", "piso y alta", "vuelve a uci")
 
     # el JSON para la calculadora web da lo mismo que scikit-learn

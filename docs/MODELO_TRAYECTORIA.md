@@ -61,6 +61,15 @@ Nota: el archivo no trae el estado ni el destino al egreso (casa, remisión, fal
 
 Bandas: 0-3, 4-7, 8-14 y 15 o más días.
 
+## Probabilidad por rango de días (prueba, juego tablero)
+
+Una sola fecha tiene un techo con estos datos: decir a todos el mismo número de días acierta con ±2 días casi tanto como el modelo. Por eso el modelo da la probabilidad de cada rango. La mejora es la reducción del ranked probability score frente a usar la distribución histórica para todos.
+
+| Estancia | Acierto ±2 días del modelo | De la mejor constante | Mejora por rangos | Rangos | Observado | Predicho |
+|---|---|---|---|---|---|---|
+| Días en UCI | 56% | 62% | 18% | 0-2, 3-4, 5-7, 8-14, 15+ | 35%, 21%, 16%, 17%, 11% | 32%, 23%, 19%, 15%, 11% |
+| Días totales de hospitalización | 29% | 35% | 25% | 0-3, 4-7, 8-14, 15-30, 31+ | 24%, 23%, 21%, 19%, 13% | 21%, 22%, 23%, 21%, 13% |
+
 ## Estabilidad en el tiempo (origen móvil, juego tablero, 3 meses de prueba por corte)
 
 | Corte | Prueba | AUC destino | AUC UCI > 7 días | AUC reingreso UCI | Error días UCI | Sin modelo |
@@ -121,6 +130,8 @@ Bandas: 0-3, 4-7, 8-14 y 15 o más días.
 - **Camino de salida (AUC 0,75 a 0,77)** y **estancia prolongada (AUC 0,77, IC 95% 0,75 a 0,80)** se predicen con utilidad al ingreso. El SOFA solo da 0,65 para estancia y no sirve para el camino (0,48). Lo que más pesa es el diagnóstico, el asegurador, el SOFA y el NEWS.
 - **Camino completo**: la opción más probable acierta en 68% de los casos frente a 59% de asignar siempre "piso y alta".
 - **Días**: acierta la banda de estancia 44-47% de las veces frente a 21-25% sin modelo, y el rango p10-p90 contiene el valor real en 86-90% de los casos. El error medio sigue siendo de 4 días en UCI: sirve para planear camas en conjunto, no para fijar la fecha de un paciente. La suma de medianas subestima los días-cama totales porque la estancia tiene cola larga.
+- **Fecha puntual de egreso**: con datos de ingreso tiene un techo. El modelo acierta ±2 días en 56% de los egresos de UCI, y decir a todos "3 días" acierta 62% porque la mayoría de estancias son cortas. Por eso el modelo da la **probabilidad de cada rango** (0-2, 3-4, 5-7, 8-14 y 15 o más días): está calibrada y mejora 18% en UCI y 25% en el hospital sobre la distribución histórica.
+- **Probado y descartado para afinar**: ocupación de la clínica al ingreso, ingresos de los 7 días previos, estancia y tiempo desde el ingreso anterior y mes del año no mejoraron; LightGBM y CatBoost dieron entre 0,01 y 0,02 más de AUC, dentro del intervalo de confianza; un modelo discreto que busca el día con más probabilidad de acertar ±2 días llegó a 60%, por debajo de la constante.
 - **Reingreso a UCI (AUC 0,70)**: discrimina algo pero apenas mejora el Brier sobre la tasa base; se predice mejor al momento del traslado con el SWIFT.
 - **Más datos, mejor modelo**: con el origen móvil el AUC del camino pasa de 0,67 (entrenado con 7 meses) a 0,77 (con 17 meses). La salida desde UCI subió de 26% en 2024-2025 a 35% en 2026, por eso hay que reentrenar cada mes.
 

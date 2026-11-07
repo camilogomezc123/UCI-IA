@@ -135,6 +135,8 @@ def preparar(df: pd.DataFrame) -> pd.DataFrame:
     x["dias_uci"] = d["dias_uci"].astype(float)
     x["dias_total"] = d["dias_total"].astype(float)
     x["uci_prolongada"] = (x["dias_uci"] > UMBRAL_UCI_PROLONGADA).astype(int)
+    for y, (cortes, _) in BANDAS.items():
+        x[f"banda_{y}"] = np.digitize(x[y], cortes, right=True)
     x["trayectoria"] = np.where(x["rebote_uci"] == 1, 2, np.where(x["alta_directa"] == 1, 0, 1))
     return x
 
@@ -183,6 +185,10 @@ def _regresor(q: float):
 
 
 BINARIOS = ("alta_directa", "rebote_uci", "uci_prolongada")
+# Rangos de días: la fecha puntual tiene un techo con datos de ingreso (decir siempre "3 días"
+# acierta ±2 días en 62% de los egresos de UCI), así que se da la probabilidad de cada rango.
+BANDAS = {"dias_uci": ([2, 4, 7, 14], ["0-2", "3-4", "5-7", "8-14", "15+"]),
+          "dias_total": ([3, 7, 14, 30], ["0-3", "4-7", "8-14", "15-30", "31+"])}
 # Camino completo, excluyentes: sale del hospital desde UCI, pasa a piso y sale, o vuelve a UCI.
 TRAYECTORIAS = ("sale_desde_uci", "piso_y_alta", "vuelve_a_uci")
 CONTINUOS = ("dias_uci", "dias_total")
@@ -195,6 +201,7 @@ class ModeloTrayectoria:
     clasificadores: dict[str, object]
     regresores: dict[str, dict[float, object]]
     multiclase: object | None = None
+    bandas: dict[str, object] = field(default_factory=dict)
     entrenado_hasta: str = ""
     n_entrenamiento: int = 0
     metricas: dict = field(default_factory=dict)
@@ -211,6 +218,11 @@ class ModeloTrayectoria:
             pm = self.multiclase.predict_proba(m)
             for i, nombre in enumerate(TRAYECTORIAS):
                 out[f"p_{nombre}"] = pm[:, i]
+        for y, clf in (getattr(self, "bandas", None) or {}).items():
+            pb = np.zeros((len(m), len(BANDAS[y][1])))
+            pb[:, clf.classes_] = clf.predict_proba(m)
+            for i, etiqueta in enumerate(BANDAS[y][1]):
+                out[f"p_{y}_{etiqueta}"] = pb[:, i]
         for y, regs in self.regresores.items():
             # Se modela log(1 + días) y se ordenan los cuantiles para que no se crucen.
             qs = np.sort(np.column_stack([regs[q].predict(m) for q in CUANTILES]), axis=1)
@@ -235,7 +247,8 @@ def ajustar(x: pd.DataFrame, juego: str = "tablero") -> ModeloTrayectoria:
     clfs = {y: _clasificador().fit(m, x[y]) for y in BINARIOS}
     regs = {y: {q: _regresor(q).fit(m, np.log1p(x[y])) for q in CUANTILES} for y in CONTINUOS}
     multi = _clasificador().fit(m, x["trayectoria"])
-    return ModeloTrayectoria(juego, niveles, clfs, regs, multi, str(x["fecha_ingreso"].max().date()), len(x))
+    bandas = {y: _clasificador().fit(m, x[f"banda_{y}"]) for y in BANDAS}
+    return ModeloTrayectoria(juego, niveles, clfs, regs, multi, bandas, str(x["fecha_ingreso"].max().date()), len(x))
 
 
 def ventana_completa(x: pd.DataFrame, inicio: str, fin: str) -> pd.DataFrame:
@@ -302,9 +315,28 @@ def validar(x: pd.DataFrame, corte: str, fin_prueba: str, juego: str) -> dict:
                         "log_loss_sin_modelo": round(float(log_loss(yt, np.tile(previa, (len(yt), 1)), labels=[0, 1, 2])), 3),
                         "acierto_clase_mas_probable": round(float((pm.argmax(1) == yt).mean()), 3),
                         "acierto_sin_modelo": round(float((yt == previa.argmax()).mean()), 3)}
+    r["bandas"] = {}
+    for y, (_, etiquetas) in BANDAS.items():
+        pb = pred[[f"p_{y}_{e}" for e in etiquetas]].to_numpy()
+        yb = pru[f"banda_{y}"].to_numpy()
+        base = np.bincount(ent[f"banda_{y}"], minlength=len(etiquetas)) / len(ent)
+        rps, rps0 = _rps(pb, yb), _rps(np.tile(base, (len(yb), 1)), yb)
+        r["bandas"][y] = {"rps": round(rps, 4), "rps_sin_modelo": round(rps0, 4), "mejora": round(1 - rps / rps0, 3),
+                          "observado": [round(float((yb == k).mean()), 3) for k in range(len(etiquetas))],
+                          "predicho": [round(float(v), 3) for v in pb.mean(0)],
+                          "calibracion": {e: _calibracion((yb == k).astype(int), pb[:, k]) for k, e in enumerate(etiquetas)},
+                          "acierto_puntual_2d": round(float(np.mean(np.abs(pru[y] - np.round(pred[f"{y}_p50"])) <= 2)), 3),
+                          "acierto_puntual_2d_constante": round(float(max(np.mean(np.abs(pru[y] - d) <= 2) for d in range(15))), 3)}
     r["ic95"] = _bootstrap(pru, pred)
     r["importancia"] = _importancia(modelo, pru)
     return r
+
+
+def _rps(p: np.ndarray, y: np.ndarray) -> float:
+    """Ranked probability score: error de una predicción por rangos ordenados (0 es perfecto)."""
+    c = np.cumsum(p, 1)
+    o = np.cumsum(np.eye(p.shape[1])[y], 1)
+    return float(np.mean(np.sum((c - o) ** 2, 1) / (p.shape[1] - 1)))
 
 
 def _bootstrap(pru: pd.DataFrame, pred: pd.DataFrame, veces: int = 300, semilla: int = 7) -> dict[str, list[float]]:
@@ -434,7 +466,9 @@ def exportar_json(modelo: ModeloTrayectoria) -> dict:
           "binarios": {y: _estimador_json(e, cols, niveles, con) for y, e in modelo.clasificadores.items()},
           "trayectoria": {"clases": list(TRAYECTORIAS), **_estimador_json(modelo.multiclase, cols, niveles, con)},
           "continuos": {y: [_estimador_json(regs[q], cols, niveles, con) for q in CUANTILES]
-                        for y, regs in modelo.regresores.items()}}
+                        for y, regs in modelo.regresores.items()},
+          "bandas": {y: {"etiquetas": BANDAS[y][1], "clases": [int(k) for k in e.classes_], **_estimador_json(e, cols, niveles, con)}
+                     for y, e in (getattr(modelo, "bandas", None) or {}).items()}}
     js["conocidos"] = con
     return js
 
@@ -471,6 +505,14 @@ def predecir_json(js: dict, valores: dict) -> dict:
     z = [_suma_arboles(t, fila, k) for k in range(len(t["clases"]))]
     ez = [math.exp(v - max(z)) for v in z]
     out.update({f"p_{c}": e / sum(ez) for c, e in zip(t["clases"], ez)})
+    for y, b in js.get("bandas", {}).items():
+        if len(b["clases"]) == 2:  # scikit-learn usa un solo árbol por ronda con dos clases
+            z = [0.0, _suma_arboles(b, fila)]
+        else:
+            z = [_suma_arboles(b, fila, k) for k in range(len(b["clases"]))]
+        ez = [math.exp(v - max(z)) for v in z]
+        prob = dict(zip(b["clases"], (e / sum(ez) for e in ez)))
+        out.update({f"p_{y}_{e}": prob.get(k, 0.0) for k, e in enumerate(b["etiquetas"])})
     for y, ests in js["continuos"].items():
         qs = sorted(_suma_arboles(e, fila) for e in ests)
         for q, v in zip(js["cuantiles"], qs):
@@ -519,6 +561,7 @@ class PrediccionTrayectoria:
     dias_total: tuple[float, float, float]
     dias_uci_restantes: float | None = None
     trayectoria: dict[str, float] = field(default_factory=dict)  # sale_desde_uci, piso_y_alta, vuelve_a_uci
+    rangos_uci: dict[str, float] = field(default_factory=dict)  # probabilidad de cada rango de días en UCI
 
     @property
     def destino(self) -> str:
@@ -538,7 +581,8 @@ def predecir_paciente(p: PacienteTablero, modelo: ModeloTrayectoria | None = Non
     rest = restante_condicional(*uci, dias_uci) if dias_uci is not None else None
     tray = {n: round(float(f[f"p_{n}"]), 3) for n in TRAYECTORIAS if f"p_{n}" in f}
     return PrediccionTrayectoria(round(float(f["p_alta_directa"]), 3), round(float(f["p_rebote_uci"]), 3),
-                                 round(float(f["p_uci_prolongada"]), 3), uci, tot, rest, tray)
+                                 round(float(f["p_uci_prolongada"]), 3), uci, tot, rest, tray,
+                                 {e: round(float(f[f"p_dias_uci_{e}"]), 3) for e in BANDAS["dias_uci"][1] if f"p_dias_uci_{e}" in f})
 
 
 # ---------------------------------------------------------------- entrenamiento completo
@@ -638,7 +682,18 @@ def a_markdown(inf: dict) -> str:
             c = v[j]["continuos"][y]
             l.append(f"| {nombres[y]} | {j} | {c['mediana_observada']:.0f} | {c['mae_mediana']:.1f} | {c['mae_sin_modelo']:.1f} | "
                      f"{c['cobertura_p10_p90']:.0%} | {c['acierto_banda']:.0%} | {c['acierto_banda_sin_modelo']:.0%} | {c['spearman']:.2f} |")
-    l += ["", "Bandas: 0-3, 4-7, 8-14 y 15 o más días.", ""]
+    l += ["", "Bandas: 0-3, 4-7, 8-14 y 15 o más días.", "",
+          "## Probabilidad por rango de días (prueba, juego tablero)", "",
+          "Una sola fecha tiene un techo con estos datos: decir a todos el mismo número de días acierta con ±2 días "
+          "casi tanto como el modelo. Por eso el modelo da la probabilidad de cada rango. La mejora es la reducción "
+          "del ranked probability score frente a usar la distribución histórica para todos.", "",
+          "| Estancia | Acierto ±2 días del modelo | De la mejor constante | Mejora por rangos | Rangos | Observado | Predicho |",
+          "|---|---|---|---|---|---|---|"]
+    for y, b in v["tablero"].get("bandas", {}).items():
+        l.append(f"| {nombres[y]} | {b['acierto_puntual_2d']:.0%} | {b['acierto_puntual_2d_constante']:.0%} | {b['mejora']:.0%} | "
+                 f"{', '.join(BANDAS[y][1])} | {', '.join(f'{o:.0%}' for o in b['observado'])} | "
+                 f"{', '.join(f'{q:.0%}' for q in b['predicho'])} |")
+    l += [""]
     if inf.get("validacion_movil"):
         l += ["## Estabilidad en el tiempo (origen móvil, juego tablero, 3 meses de prueba por corte)", "",
               "| Corte | Prueba | AUC destino | AUC UCI > 7 días | AUC reingreso UCI | Error días UCI | Sin modelo |", "|---|---|---|---|---|---|---|"]

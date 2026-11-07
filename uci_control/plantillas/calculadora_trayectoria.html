@@ -58,6 +58,14 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .rango .t { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; flex-wrap: wrap }
 .rango .t b { font-family: var(--f-mono); font-variant-numeric: tabular-nums }
 svg text { fill: var(--muted); font-family: var(--f-mono); font-size: 11px }
+.dist { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; align-items: end; margin-top: 6px }
+.dist .col { display: grid; gap: 4px; text-align: center }
+.dist .bar { height: 64px; display: flex; align-items: flex-end; background: var(--bg); border-radius: 4px; overflow: hidden }
+.dist .bar i { display: block; width: 100%; background: var(--accent); transition: height .35s ease }
+.dist .p { font-family: var(--f-mono); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums }
+.dist .e { font-size: 12px; color: var(--muted) }
+.dists { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; margin-top: 18px }
+@media (max-width: 520px) { .dists { grid-template-columns: minmax(0, 1fr) } }
 .aviso { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 12px 14px; font-size: 14px }
 .aviso b { font-weight: 700 }
 .conf { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px }
@@ -68,7 +76,7 @@ th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line
 th { font-size: 12px; color: var(--muted); font-weight: 600 }
 td.n { font-family: var(--f-mono); text-align: right; white-space: nowrap } th.n { text-align: right }
 .nota { font-size: 13px; color: var(--muted); margin: 10px 0 0 }
-@media (prefers-reduced-motion: reduce) { .barra div { transition: none } }
+@media (prefers-reduced-motion: reduce) { .barra div, .dist .bar i { transition: none } }
 </style>
 
 <div class="wrap">
@@ -148,6 +156,11 @@ td.n { font-family: var(--f-mono); text-align: right; white-space: nowrap } th.n
           </div>
           <div class="t" id="fechas"></div>
         </div>
+        <div class="dists">
+          <div><div class="t" style="font-size:14px">Probabilidad de cada duración en UCI (días)</div><div class="dist" id="dUci"></div></div>
+          <div><div class="t" style="font-size:14px">Probabilidad de cada duración en el hospital (días)</div><div class="dist" id="dTot"></div></div>
+        </div>
+        <p class="nota">Con los datos del ingreso una fecha exacta acierta poco (±2 días en 56% de los egresos de UCI). Las probabilidades por rango son más confiables: están calibradas y mejoran 18% (UCI) y 25% (hospital) sobre usar el promedio histórico.</p>
       </div>
 
       <div class="aviso"><b>Sobre "sale desde UCI".</b> El archivo de egresos no dice si el paciente salió vivo, remitido o fallecido. Este camino incluye a todo el que dejó el hospital con la UCI como último servicio, y hay señales de que ahí quedan fallecidos (presión agónica registrada, más frecuente con SOFA alto). Con la columna de estado al egreso se separan.</div>
@@ -221,6 +234,13 @@ function predecir(vals) {
   const z = M.trayectoria.clases.map((_, k) => suma(M.trayectoria, fila, k)); const mx = Math.max(...z);
   const ez = z.map(v => Math.exp(v - mx)); const s = ez.reduce((a, b) => a + b, 0);
   out.camino = Object.fromEntries(M.trayectoria.clases.map((c, k) => [c, ez[k] / s]));
+  out.bandas = {};
+  for (const [y, b] of Object.entries(M.bandas || {})) {
+    const z = b.clases.length === 2 ? [0, suma(b, fila)] : b.clases.map((_, k) => suma(b, fila, k));
+    const m2 = Math.max(...z); const e2 = z.map(v => Math.exp(v - m2)); const s2 = e2.reduce((a, c) => a + c, 0);
+    const pr = b.etiquetas.map(() => 0); b.clases.forEach((k, i) => { pr[k] = e2[i] / s2 });
+    out.bandas[y] = b.etiquetas.map((e, i) => [e, pr[i]]);
+  }
   for (const [y, ests] of Object.entries(M.continuos)) out[y] = ests.map(e => suma(e, fila)).sort((a, b) => a - b).map(v => Math.max(Math.expm1(v), 0));
   return out;
 }
@@ -280,6 +300,10 @@ function render() {
   $("vTot").textContent = dias(r.dias_total[1]);
   $("rUci").textContent = `${dias(r.dias_uci[0])} a ${dias(r.dias_uci[2])} días`; $("rTot").textContent = `${dias(r.dias_total[0])} a ${dias(r.dias_total[2])} días`;
   rango($("sUci"), r.dias_uci, 30); rango($("sTot"), r.dias_total, 60);
+  [["dUci", "dias_uci"], ["dTot", "dias_total"]].forEach(([id, y]) => {
+    const b = r.bandas[y]; if (!b) return; const mx = Math.max(...b.map(v => v[1]));
+    $(id).innerHTML = b.map(([e, p]) => `<div class="col"><span class="p">${pct(p)}</span><div class="bar"><i style="height:${Math.max(p / mx * 100, 2)}%;${p === mx ? "" : "opacity:.45"}"></i></div><span class="e">${e}</span></div>`).join("");
+  });
   const f0 = $("fecha").valueAsDate;
   if (f0) {
     const fmt = d => d.toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
