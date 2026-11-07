@@ -1,0 +1,138 @@
+Subject: Entrega de turno UCI Torre B noche 26/10
+From: enfermeria.torreb@ejemplo.invalid
+To: coordinacion.uci@ejemplo.invalid
+Date: Tue, 27 Oct 2026 06:45:00 -0500
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+ENTREGA DE TURNO DE ENFERMER=C3=8DA (formato estructurado)
+Estaci=C3=B3n: UCI Torre B
+Fecha: 26/10/2026
+Turno: Noche
+
+CAMA: U63
+Episodio: EP-900063
+Ingreso UCI: 19/10/2026
+Condici=C3=B3n: UCI
+Ventilaci=C3=B3n: VMI por tubo orotraqueal
+Vasoactivos: Norepinefrina 0,2 mcg/kg/min
+TRR: No
+Dispositivos: CVC 22/10/2026 (justificaci=C3=B3n: vasopresor); L=C3=ADnea art=
+erial 19/10/2026 (justificaci=C3=B3n: monitoreo invasivo)
+Antibi=C3=B3ticos: Meropenem d=C3=ADa 4
+Aislamiento: Ninguno
+Pendientes:
+- [resultado] Hemocultivos (solicitado 25/10/2026)
+Nota: Sin cambios relevantes durante la noche.
+
+CAMA: U64
+Episodio: EP-900064
+Ingreso UCI: 21/10/2026
+Condici=C3=B3n: UCI
+Ventilaci=C3=B3n: C=C3=A1nula nasal 2 L
+Vasoactivos: Ninguno
+TRR: No
+Dispositivos: Sonda vesical 21/10/2026 (justificaci=C3=B3n: balance estricto)
+Antibi=C3=B3ticos: Ninguno
+Aislamiento: Ninguno
+Pendientes:
+Nota: Estable.
+
+CAMA: U65
+Episodio: EP-900056
+Ingreso UCI: 22/10/2026
+Condici=C3=B3n: UCI
+Ventilaci=C3=B3n: Aire ambiente
+Vasoactivos: Ninguno
+TRR: No
+Dispositivos:
+Antibi=C3=B3ticos: Ninguno
+Aislamiento: Ninguno
+Pendientes:
+Nota: Pendiente valoraci=C3=B3n por cardiolog=C3=ADa.
+
+CAMA: U66
+Episodio: EP-900066
+Ingreso UCI: 11/10/2026
+Condici=C3=B3n: Piso
+Ventilaci=C3=B3n: Aire ambiente
+Vasoactivos: Ninguno
+TRR: No
+Dispositivos:
+Antibi=C3=B3ticos: Ninguno
+Aislamiento: Ninguno
+Pendientes:
+- [traslado] Traslado a piso sin cama asignada (solicitado 24/10/2026)
+Nota: Condici=C3=B3n piso desde hace dos d=C3=ADas, en espera de cama.
+
+CAMA: U67
+Episodio: EP-900067
+Ingreso UCI: 23/10/2026
+Condici=C3=B3n: UCI
+Ventilaci=C3=B3n: C=C3=A1nula de alto flujo
+Vasoactivos: Ninguno
+TRR: No
+Dispositivos: CVC 23/10/2026
+Antibi=C3=B3ticos: Piperacilina tazobactam d=C3=ADa 3
+Aislamiento: Ninguno
+Pendientes:
+Nota: Hipotensi=C3=B3n a las 02:00, se inicia norepinefrina a 0,05 con mejor=
+=C3=ADa.
+
+CAMA: U68
+Episodio: EP-900068
+Ingreso UCI: 24/10/2026
+Condici=C3=B3n: UCI
+Ventilaci=C3=B3n: C=C3=A1nula nasal 3 L
+Vasoactivos: Ninguno
+TRR: No
+Dispositivos: L=C3=ADnea arterial 24/10/2026 (justificaci=C3=B3n: gases seria=
+dos)
+Antibi=C3=B3ticos: Ninguno
+Aislamiento: Ninguno
+Pendientes:
+Nota: Posoperatorio de cirug=C3=ADa abdominal, estable.
+
+CAMA: U70
+Episodio: EP-900070
+Ingreso UCI: 16/10/2026
+Condici=C3=B3n: UCI
+Ventilaci=C3=B3n: VMI
+Vasoactivos: Ninguno
+TRR: No
+Dispositivos: CVC 16/10/2026 (justificaci=C3=B3n: nutrici=C3=B3n parenteral)
+Antibi=C3=B3ticos: Vancomicina d=C3=ADa 6
+Aislamiento: Ninguno
+Pendientes:
+Nota: Se suspendi=C3=B3 norepinefrina ayer.
+
+CAMA: U71
+Episodio: EP-900071
+Ingreso UCI: 20/10/2026
+Condici=C3=B3n: UCI
+Ventilaci=C3=B3n: Aire ambiente
+Vasoactivos: Ninguno
+TRR: No
+Dispositivos: PICC 20/10/2026 (justificaci=C3=B3n: quimioterapia)
+Antibi=C3=B3ticos: Ninguno
+Aislamiento: Ninguno
+Pendientes:
+- [autorizaci=C3=B3n] Quimioterapia pendiente de autorizaci=C3=B3n de la EPS =
+(solicitado 23/10/2026)
+Nota: Paciente oncol=C3=B3gico estable, en espera de autorizaci=C3=B3n.
+
+CAMA: U72
+Episodio: EP-900072
+Ingreso UCI: 29/08/2026
+Condici=C3=B3n: UCI
+Ventilaci=C3=B3n: Traqueostom=C3=ADa conectada a ventilador (VMI)
+Vasoactivos: Ninguno
+TRR: S=C3=AD, hemodi=C3=A1lisis intermitente
+Dispositivos: Mahurkar femoral 05/09/2026; CVC 12/10/2026
+Antibi=C3=B3ticos: Ceftazidima avibactam d=C3=ADa 9
+Aislamiento: Contacto
+Pendientes:
+- [resultado] Lavado broncoalveolar (solicitado 09/10/2026)
+Nota: Estancia prolongada. Sr. Pedro Gomez (hijo) solicita reuni=C3=B3n, celu=
+lar 3109876543.

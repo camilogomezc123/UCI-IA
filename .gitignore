@@ -9,3 +9,13 @@ datos_reales/
 .env
 credentials*.json
 token*.json
+client_secret*.json
+parametros*.json
+*.sqlite
+pendientes_*.csv
+demo/
+.venv/
+# Modelos entrenados con datos reales
+modelos/
+*.joblib
+egresos*.xlsx
