@@ -63,6 +63,7 @@ class EvaluacionPaciente:
     valor_dia: float
     valor_en_juego: float  # valor facturable estimado de los días que faltan
     alertas: list[str] = field(default_factory=list)
+    trayectoria: object | None = None  # PrediccionTrayectoria si hay modelo entrenado
 
 
 def _nivel(puntaje: float, alto: float, medio: float) -> str:
@@ -178,7 +179,11 @@ def _egreso(p: PacienteTablero) -> Riesgo:
 
 
 def _dias_restantes(p: PacienteTablero) -> float:
-    """Supuesto editable mientras no haya un modelo calibrado con desenlaces reales."""
+    """Con un modelo entrenado (UCI_MODELO_TRAYECTORIA), la mediana condicional de los días que
+    faltan dado lo que ya lleva; sin modelo, el supuesto editable de abajo."""
+    pred = _trayectoria(p)
+    if pred is not None and pred.dias_uci_restantes is not None:
+        return pred.dias_uci_restantes
     if p.criterio == "OTROS" and p.sin_soportes:
         return 0.5
     dias = 1.5 if p.criterio == "UCIN" else 2.5
@@ -187,6 +192,12 @@ def _dias_restantes(p: PacienteTablero) -> float:
     if p.vasoactivo:
         dias += 2
     return dias
+
+
+def _trayectoria(p: PacienteTablero):
+    from .trayectoria import predecir_paciente  # import diferido: trayectoria importa este módulo
+
+    return predecir_paciente(p, dias_uci=p.dias_hospitalizacion or 0)
 
 
 def evaluar(p: PacienteTablero) -> EvaluacionPaciente:
@@ -212,4 +223,5 @@ def evaluar(p: PacienteTablero) -> EvaluacionPaciente:
         valor_dia=valor_dia,
         valor_en_juego=round(restantes * valor_dia),
         alertas=alertas,
+        trayectoria=_trayectoria(p),
     )

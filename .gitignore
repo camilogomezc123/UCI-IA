@@ -15,3 +15,7 @@ parametros*.json
 pendientes_*.csv
 demo/
 .venv/
+# Modelos entrenados con datos reales
+modelos/
+*.joblib
+egresos*.xlsx

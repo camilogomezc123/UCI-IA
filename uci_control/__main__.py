@@ -5,6 +5,7 @@
     python -m uci_control diario --gmail-token token.json --enviar coordinacion@clinica.co
     python -m uci_control seguimiento marcar A1B2C3D4 hecho --nota "traqueostomía programada"
     python -m uci_control datos-prueba --salida datos_prueba/
+    python -m uci_control modelo-trayectoria --egresos egresos_uci.xlsx --salida modelos/
 """
 
 from __future__ import annotations
@@ -73,6 +74,13 @@ def main(argv: list[str] | None = None) -> int:
     exp.add_argument("archivo", type=Path)
     sgs.add_parser("resumen", help="Adherencia por servicio")
 
+    mt = sub.add_parser("modelo-trayectoria", help="Entrena y valida los modelos de destino y estancia con el consolidado de egresos")
+    mt.add_argument("--egresos", required=True, type=Path, help="Consolidado de egresos UCI (.xlsx o .csv), una fila por ingreso")
+    mt.add_argument("--salida", type=Path, default=Path("salida"), help="Carpeta del informe y los modelos (fuera del repositorio)")
+    mt.add_argument("--corte", help="Fecha de inicio de la prueba temporal (por defecto, el último 30%% del periodo)")
+    mt.add_argument("--inicio", help="Primer ingreso a usar (por defecto, el mes del egreso más antiguo)")
+    mt.add_argument("--fin", help="Último ingreso a usar (por defecto, tres meses antes del último egreso)")
+
     d = sub.add_parser("datos-prueba", help="Genera datos sintéticos para probar el agente")
     d.add_argument("--salida", type=Path, default=Path("datos_prueba"))
 
@@ -88,6 +96,22 @@ def main(argv: list[str] | None = None) -> int:
         generar_tablero(args.salida / "tablero_orbit.xlsx")
         generar_correo_tablero(args.salida / "correos")
         print(f"Datos de prueba en {args.salida}")
+        return 0
+
+    if args.comando == "modelo-trayectoria":
+        import json
+
+        from .prediccion import trayectoria
+
+        modelos, inf = trayectoria.entrenar_desde_archivo(args.egresos, args.corte, args.fin, args.inicio)
+        args.salida.mkdir(parents=True, exist_ok=True)
+        (args.salida / "modelo_trayectoria.md").write_text(trayectoria.a_markdown(inf), encoding="utf-8")
+        (args.salida / "modelo_trayectoria.json").write_text(json.dumps(inf, ensure_ascii=False, indent=1, default=str),
+                                                            encoding="utf-8")
+        for juego, modelo in modelos.items():
+            modelo.guardar(args.salida / f"modelo_trayectoria_{juego}.joblib")
+        print(f"Informe y modelos en {args.salida}. Para usarlo en el agente: "
+              f"UCI_MODELO_TRAYECTORIA={args.salida / 'modelo_trayectoria_tablero.joblib'}")
         return 0
 
     if args.comando == "seguimiento":

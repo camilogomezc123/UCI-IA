@@ -82,5 +82,6 @@ python -m uci_control diario --gmail-token token.json --camas-totales 66 --envia
 
 - **Hora de egreso real.** El tablero es una foto diaria; con la hora de salida de ORBIT se mide el porcentaje de egresos antes del mediodía (meta SAFER) y los egresos fuera de horario.
 - **Gases y Glasgow.** Con PaO2/FiO2, PaCO2 y Glasgow el SWIFT deja de ser parcial.
+- **Estancia esperada con datos de la clínica.** Con `UCI_MODELO_TRAYECTORIA` los días restantes (y la fecha esperada de egreso de los pacientes que aún no cumplen criterios) salen del modelo entrenado con los egresos 2024-2026, no de supuestos. Ver [MODELO_TRAYECTORIA.md](MODELO_TRAYECTORIA.md).
 - **Calibración.** Las probabilidades de egreso (0,8, 0,6, 0,35 y 0,05) son supuestos. Con un mes de historial se reemplazan por las observadas en la clínica; el mismo historial sirve para entrenar un modelo de predicción de egreso como el del estudio RTDC de Barnes.
 - **Demanda real.** Con la trazabilidad de solicitudes de cama del día se reemplaza el promedio por la demanda observada por día de la semana y franja horaria (`prediccion/demanda.py`).

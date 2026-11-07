@@ -30,13 +30,18 @@ Facturación (cargos)      ─┘   (16 reglas)               (Claude + verifica
 | Sugerencias | `uci_control/prediccion/sugerencias.py` | Interconsultas y acciones con responsable y prioridad: traslado a piso, traqueostomía, PROA, nutrición, fonoaudiología, movilización, PICS, analgesia, paliativos, trabajo social, autorizaciones y pendientes enrutados. |
 | Demanda y capacidad | `uci_control/prediccion/demanda.py` | Métricas de la trazabilidad de camas, modelo logístico de rechazo de solicitudes (AUC por validación cruzada) y escenarios Erlang-B de capacidad. |
 | Pronóstico | `uci_control/prediccion/pronostico.py` | Holt con tendencia amortiguada e intervalo del 90% para series mensuales. |
+| Destino y estancia | `uci_control/prediccion/trayectoria.py` | Modelos entrenados con los egresos de la clínica: salida directa desde UCI o paso por piso, reingreso a UCI, UCI de más de 7 días y cuantiles de días en UCI y en el hospital, con validación temporal. Ver `docs/MODELO_TRAYECTORIA.md`. |
 
 ```bash
 python -m uci_control riesgo --tablero Reporte_TableroControlUCI1.xlsx --salida salida/
 # o sumarlo al informe diario: informe ... --tablero Reporte_TableroControlUCI1.xlsx
+
+# Destino y estancia con los egresos de la clínica
+python -m uci_control modelo-trayectoria --egresos egresos_uci.xlsx --salida modelos/
+export UCI_MODELO_TRAYECTORIA=modelos/modelo_trayectoria_tablero.joblib
 ```
 
-Los puntajes son reglas a partir de escalas validadas; no están calibrados con desenlaces de la clínica hasta tener egreso, muerte y estancia final por episodio.
+Los puntajes son reglas a partir de escalas validadas. La estancia y el destino ya se pueden calibrar con los egresos de la clínica (`modelo-trayectoria`); la mortalidad necesita el estado al egreso.
 
 ## Gestión de camas y egreso oportuno
 

@@ -53,6 +53,17 @@ def a_markdown(pacientes: list[PacienteTablero]) -> str:
         lineas.append(f"| {f['cama']} | {f['criterio']} | {e['mortalidad']['nivel']} | {e['deterioro']['nivel']} | "
                       f"{e['estancia_prolongada']['nivel']} | {e['infeccion']['nivel']} | {e['egreso_proximo']['nivel']} | "
                       f"{'; '.join(e['alertas'])} |")
+    con_modelo = [f for f in filas if f["evaluacion"].get("trayectoria")]
+    if con_modelo:
+        lineas += ["", "## Destino y estancia esperados (modelo entrenado con los egresos de la clínica)", "",
+                   "| Cama | Sale del hospital desde UCI | Reingreso a UCI | UCI > 7 días | Días UCI p10-p50-p90 | "
+                   "Días UCI que faltan | Días hospital p50 |", "|---|---|---|---|---|---|---|"]
+        for f in con_modelo:
+            t = f["evaluacion"]["trayectoria"]
+            u = t["dias_uci"]
+            lineas.append(f"| {f['cama']} | {t['p_alta_directa']:.0%} | {t['p_rebote_uci']:.0%} | {t['p_uci_prolongada']:.0%} | "
+                          f"{u[0]:.0f}-{u[1]:.0f}-{u[2]:.0f} | {t['dias_uci_restantes'] if t['dias_uci_restantes'] is not None else ''} | "
+                          f"{t['dias_total'][1]:.0f} |")
     lineas += ["", "## Acciones de 48 horas y de la semana", ""]
     for s in sugerencias:
         if s["prioridad"] in ("48h", "semana"):
