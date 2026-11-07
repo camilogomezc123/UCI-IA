@@ -86,6 +86,29 @@ class Historial:
             "(SELECT paciente FROM foto WHERE fecha = ?)", (anterior.isoformat(), fecha.isoformat())).fetchall()
         return [{"paciente": p, "cama": c, "estado_previo": e, "fecha_esperada": fe} for p, c, e, fe in filas]
 
+    def llegadas(self, fecha: date, respaldo=None, semanas: int = 12, minimo_dias: int = 28):
+        """Ingresos nuevos por día de la semana según el historial (pacientes que aparecen por
+        primera vez). Con menos de `minimo_dias` días seguidos de historial devuelve `respaldo`.
+        Quien aparece por primera vez en el tablero de una mañana ingresó el día anterior: ese es
+        el día de la semana que cuenta, como en el consolidado de egresos."""
+        desde = (fecha - timedelta(weeks=semanas)).isoformat()
+        fechas = [date.fromisoformat(f) for (f,) in self.con.execute(
+            "SELECT DISTINCT fecha FROM foto WHERE fecha >= ? AND fecha <= ? ORDER BY fecha", (desde, fecha.isoformat()))]
+        primero = self.con.execute("SELECT MIN(fecha) FROM foto").fetchone()[0]
+        # El primer día del historial todos parecen nuevos: no cuenta.
+        dias = [f for f in fechas if primero and f > date.fromisoformat(primero) and f - timedelta(days=1) in fechas]
+        if len(dias) < minimo_dias or respaldo is None:
+            return respaldo
+        nuevos = {f: self.con.execute(
+            "SELECT COUNT(*) FROM foto a WHERE a.fecha = ? AND NOT EXISTS (SELECT 1 FROM foto b WHERE b.paciente = a.paciente AND b.fecha < ?)",
+            (f.isoformat(), f.isoformat())).fetchone()[0] for f in dias}
+        tasa = []
+        for dow in range(7):
+            v = [n for f, n in nuevos.items() if (f - timedelta(days=1)).weekday() == dow]
+            tasa.append(round(sum(v) / len(v), 3) if v else respaldo.tasa[dow])
+        from dataclasses import replace
+        return replace(respaldo, tasa=tasa)
+
     def indicadores_flujo(self, fecha: date, dias: int = 30) -> dict:
         """Indicadores de los últimos `dias`: egresos detectados, cuántos salieron el día que
         estaban listos y días-cama rojos (paciente listo que no salió)."""

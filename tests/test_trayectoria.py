@@ -90,4 +90,4 @@ def test_cli(tmp_path):
     assert "SINT" not in md and "SINTETICO" not in md
     assert (tmp_path / "out" / "modelo_trayectoria_tablero.joblib").exists()
     html = (tmp_path / "out" / "calculadora_trayectoria.html").read_text()
-    assert "__MODELO__" not in html and "SINT" not in html and '"binarios"' in html
+    assert "__MODELO__" not in html and "__EGRESO__" not in html and "SINT" not in html and '"binarios"' in html

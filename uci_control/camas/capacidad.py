@@ -26,6 +26,8 @@ class PacientePlan:
     barreras: list[dict]
     acciones: list[str]
     valor_dia: float
+    probabilidad_egreso_historica: float | None = None  # modelo calibrado con los egresos de la clínica
+    probabilidad_egreso_aprendida: float | None = None  # modelo aprendido del estado diario (camas/aprendizaje.py)
 
 
 @dataclass
@@ -50,6 +52,11 @@ class PlanCamas:
     pacientes: list[PacientePlan] = field(default_factory=list)
     barreras_frecuentes: list[dict] = field(default_factory=list)
     flujo: dict = field(default_factory=dict)
+    egresos_esperados_historico: float | None = None  # suma de las probabilidades del modelo de egreso diario
+    ocupacion_7d: list[dict] = field(default_factory=list)  # pronóstico de ocupación de los próximos días
+    fuente_egresos: str = "criterios de alta"  # de dónde salen los egresos esperados de la brecha
+    egresos_esperados_reglas: float | None = None
+    egresos_esperados_aprendido: float | None = None
 
 
 NIVELES = {
@@ -75,11 +82,21 @@ def nivel_escalamiento(ocupacion: float, brecha: float, bloqueadas_pct: float) -
 
 
 def plan_del_dia(fecha: date, pacientes: list[PacientePlan], camas_totales: int | None = None,
-                 demanda_esperada: float | None = None, flujo: dict | None = None) -> PlanCamas:
+                 demanda_esperada: float | None = None, flujo: dict | None = None,
+                 ocupacion_7d: list[dict] | None = None, fuente_egresos: str = "criterios de alta") -> PlanCamas:
     total = camas_totales or config.CAMAS_UCI_TOTAL
     ocupadas = len(pacientes)
     libres = max(total - ocupadas, 0)
-    egresos = round(sum(p.probabilidad_egreso_hoy for p in pacientes), 1)
+    reglas = round(sum(p.probabilidad_egreso_hoy for p in pacientes), 1)
+    historicas = [p.probabilidad_egreso_historica for p in pacientes if p.probabilidad_egreso_historica is not None]
+    egresos_historico = round(sum(historicas), 1) if historicas else None
+    # El modelo aprendido del estado diario solo llega cuando superó a las referencias en su
+    # validación; entonces es el que entra en la brecha.
+    aprendidas = [p.probabilidad_egreso_aprendida for p in pacientes]
+    aprendido = round(sum(aprendidas), 1) if pacientes and all(a is not None for a in aprendidas) else None
+    egresos = aprendido if aprendido is not None else reglas
+    if aprendido is not None:
+        fuente_egresos = "modelo aprendido del estado diario"
     demanda = demanda_esperada if demanda_esperada is not None else config.SOLICITUDES_CAMA_DIA * config.PROPORCION_SOLICITUDES_ADMITIBLES
     brecha = round(libres + egresos - demanda, 1)
     listos = [p for p in pacientes if p.estado == "listo"]
@@ -102,4 +119,6 @@ def plan_del_dia(fecha: date, pacientes: list[PacientePlan], camas_totales: int 
         dias_cama_bloqueados_hoy=float(len(listos)), valor_bloqueado_hoy=valor, ingresos_perdidos_estimados=ingresos_perdidos,
         pacientes=sorted(pacientes, key=lambda p: (-p.probabilidad_egreso_hoy, -p.dias_listo_sin_salir, p.cama)),
         barreras_frecuentes=sorted(conteo.values(), key=lambda c: -c["pacientes"]), flujo=flujo or {},
+        egresos_esperados_historico=egresos_historico, ocupacion_7d=ocupacion_7d or [], fuente_egresos=fuente_egresos,
+        egresos_esperados_reglas=reglas, egresos_esperados_aprendido=aprendido,
     )

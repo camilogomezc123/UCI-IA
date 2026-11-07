@@ -26,6 +26,14 @@ _COLOR = {"inmediata": "#b3261e", "inmediato": "#b3261e", "hoy": "#c25e00", "48h
           "critica": "#b3261e", "alta": "#c25e00"}
 
 
+def _ddmm(valor) -> str:
+    """Fecha como dd/mm, venga como date o como texto ISO (el plan pasa por JSON)."""
+    from datetime import date as _date
+
+    d = valor if isinstance(valor, _date) else _date.fromisoformat(str(valor)[:10])
+    return f"{d:%d/%m}"
+
+
 def correo(inf: InformeDiario, riesgo: list[dict], adherencia: list[dict], camas: dict | None = None) -> str:
     """Resumen para el cuerpo del correo: indicadores, alertas, prioridades inmediatas y sugerencias de hoy."""
     ind = inf.indicadores
@@ -53,10 +61,19 @@ def correo(inf: InformeDiario, riesgo: list[dict], adherencia: list[dict], camas
     if camas:
         color = {1: "#2e6b3a", 2: "#8a6d00", 3: "#c25e00", 4: "#b3261e"}[camas["nivel"]]
         partes.append(f'<h3 style="margin:16px 0 6px">Plan de camas · <span style="color:{color}">nivel {camas["nivel"]} ({escape(camas["nivel_nombre"])})</span></h3>')
-        partes.append(f'<p style="margin:0 0 6px">{camas["libres"]} camas libres + {camas["egresos_esperados"]} egresos esperados − '
+        fuente = "" if camas.get("fuente_egresos", "criterios de alta") == "criterios de alta" else f' ({escape(camas["fuente_egresos"])})'
+        partes.append(f'<p style="margin:0 0 6px">{camas["libres"]} camas libres + {camas["egresos_esperados"]} egresos esperados{fuente} − '
                       f'{camas["demanda_esperada"]} ingresos esperados = <b>brecha {camas["brecha"]:+}</b>. '
                       f'{camas["listos"]} pacientes listos para salir ({camas["listos_sin_salir_mas_de_un_dia"]} desde ayer o antes); '
                       f'{escape(pesos(camas["valor_bloqueado_hoy"]))} en días-cama UCI de pacientes que ya pueden salir.</p>')
+        if camas.get("ocupacion_7d"):
+            dias = camas["ocupacion_7d"]
+            pico = max(dias, key=lambda d: d["esperados"])
+            riesgo = [d for d in dias if (d.get("probabilidad_llena") or 0) >= 0.2]
+            partes.append(f'<p style="margin:0 0 6px">Ocupación esperada mañana: <b>{dias[0]["esperados"]:.0f}</b> pacientes '
+                          f'({dias[0]["p10"]}-{dias[0]["p90"]}); pico de la semana {pico["esperados"]:.0f} el {_ddmm(pico["fecha"])}. '
+                          + (f'Riesgo de llenar la unidad (20% o más) el {", ".join(_ddmm(d["fecha"]) for d in riesgo)}.'
+                             if riesgo else "Sin riesgo alto de llenar la unidad en los próximos 7 días.") + "</p>")
         salir = [p for p in camas["pacientes"] if p["estado"] in ("listo", "casi")]
         if salir:
             partes.append(tabla(["Cama", "Estado", "Destino", "Barrera", "Primera acción"], [

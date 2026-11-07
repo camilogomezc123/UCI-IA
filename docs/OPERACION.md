@@ -24,6 +24,10 @@ En un equipo o servidor de la institución, con acceso al buzón y autorizado pa
 | `UCI_PARAMETROS` | Ruta al JSON con las cifras financieras reales | Variable de entorno; el JSON fuera del repositorio |
 | `ANTHROPIC_API_KEY` | Solo si se usa `--con-ia` | Variable de entorno |
 | `seguimiento.sqlite` | Historia del seguimiento | Carpeta del agente, con copia de respaldo |
+| `historial_camas.sqlite` | Foto y estado de cada mañana (seudónimos, sin nombres ni documentos): de aquí aprende el modelo del estado diario | Carpeta del agente, con copia de respaldo |
+| `modelo_egreso_estado.joblib` | Modelo del estado diario, se reentrena cada semana junto al historial | Carpeta del agente |
+| `UCI_MODELO_TRAYECTORIA`, `UCI_MODELO_OCUPACION` | Rutas a los modelos entrenados con el consolidado de egresos | Variables de entorno; los modelos fuera del repositorio |
+| `UCI_REMITENTES_ENTREGA` | Buzones de las unidades que envían las entregas (si el asunto no dice "entrega de turno") | Variable de entorno |
 
 ## Instalación
 

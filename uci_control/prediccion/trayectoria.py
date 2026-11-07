@@ -108,7 +108,7 @@ def preparar(df: pd.DataFrame) -> pd.DataFrame:
     ingreso sin nombre ni documento; el documento solo se usa para contar ingresos previos."""
     d = df.copy()
     d["fecha_ingreso_min"] = pd.to_datetime(d["fecha_ingreso_min"])
-    d = d.sort_values("fecha_ingreso_min").reset_index(drop=True)
+    d = d.sort_values("fecha_ingreso_min", kind="mergesort").reset_index(drop=True)
     x = pd.DataFrame(index=d.index)
     x["fecha_ingreso"] = d["fecha_ingreso_min"]
     x["edad"] = pd.to_numeric(d["edad"], errors="coerce")
@@ -600,17 +600,22 @@ def etiquetas_diagnostico(crudo: pd.DataFrame, codigos: list[str]) -> dict[str, 
     return {c: nombres[c].most_common(1)[0][0].capitalize() for c in codigos if c != "OTRO" and nombres[c]}
 
 
-def calculadora_html(modelo: ModeloTrayectoria, informe: dict, etiquetas: dict[str, str]) -> str:
+def calculadora_html(modelo: ModeloTrayectoria, informe: dict, etiquetas: dict[str, str], egreso_diario=None) -> str:
     """Página autónoma (sin servidor) que evalúa el modelo en el navegador: el JSON exportado,
-    los nombres de los diagnósticos y las métricas de validación. No contiene datos de pacientes."""
+    los nombres de los diagnósticos y las métricas de validación. No contiene datos de pacientes.
+    Con `egreso_diario` (ModeloEgresoDiario) suma la probabilidad de salir de la UCI día a día."""
     import json
+
+    from .ocupacion import exportar_json as exportar_egreso
 
     plantilla = (Path(__file__).resolve().parent.parent / "plantillas" / "calculadora_trayectoria.html").read_text(encoding="utf-8")
     v = informe["validacion"][modelo.juego]
     meta = {"validacion": {"binarios": {y: {k: b[k] for k in ("auc", "auc_solo_sofa")} for y, b in v["binarios"].items()},
                            "continuos": v["continuos"], "trayectoria": v["trayectoria"]},
             "prueba": v["prueba"], "movil": informe.get("validacion_movil", [])}
+    egreso = json.dumps(exportar_egreso(egreso_diario), separators=(",", ":")) if egreso_diario is not None else "null"
     return (plantilla.replace("__MODELO__", json.dumps(exportar_json(modelo), separators=(",", ":")))
+            .replace("__EGRESO__", egreso)
             .replace("__DX__", json.dumps(etiquetas, ensure_ascii=False))
             .replace("__META__", json.dumps(meta, ensure_ascii=False)))
 

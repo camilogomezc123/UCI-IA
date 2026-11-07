@@ -6,6 +6,9 @@
     python -m uci_control seguimiento marcar A1B2C3D4 hecho --nota "traqueostomía programada"
     python -m uci_control datos-prueba --salida datos_prueba/
     python -m uci_control modelo-trayectoria --egresos egresos_uci.xlsx --salida modelos/
+    python -m uci_control modelo-ocupacion --egresos egresos_uci.xlsx --camas-totales 66 --salida modelos/
+    python -m uci_control historial-entregas --gmail-token token.json --desde 2026-10-01 --historial historial_camas.sqlite
+    python -m uci_control modelo-estado --historial historial_camas.sqlite
 """
 
 from __future__ import annotations
@@ -19,6 +22,12 @@ from pathlib import Path
 from .conectores import CarpetaCorreos, leer_cargos, leer_censo_orbit, parsear_entrega
 from .informe import a_json, a_markdown
 from .orquestador import Orquestador
+
+
+def config_camas() -> int:
+    from . import config
+
+    return config.CAMAS_UCI_TOTAL
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -80,6 +89,25 @@ def main(argv: list[str] | None = None) -> int:
     mt.add_argument("--corte", help="Fecha de inicio de la prueba temporal (por defecto, el último 30%% del periodo)")
     mt.add_argument("--inicio", help="Primer ingreso a usar (por defecto, el mes del egreso más antiguo)")
     mt.add_argument("--fin", help="Último ingreso a usar (por defecto, tres meses antes del último egreso)")
+    mt.add_argument("--modelo-ocupacion", type=Path, help="modelo_ocupacion.joblib, para sumar a la calculadora la salida día a día")
+
+    mo = sub.add_parser("modelo-ocupacion", help="Entrena el modelo de egreso diario y valida el pronóstico de ocupación a 7 días")
+    mo.add_argument("--egresos", required=True, type=Path, help="Consolidado de egresos UCI (.xlsx o .csv)")
+    mo.add_argument("--salida", type=Path, default=Path("salida"), help="Carpeta del informe y el modelo (fuera del repositorio)")
+    mo.add_argument("--camas-totales", type=int, help="Camas UCI habilitadas, para la probabilidad de llenar la unidad")
+    mo.add_argument("--corte", help="Inicio de la prueba temporal")
+    mo.add_argument("--fin", help="Último día a usar (por defecto, tres meses antes del último egreso)")
+
+    he = sub.add_parser("historial-entregas", help="Carga al historial el estado diario de las entregas y tableros ya recibidos")
+    origen_h = he.add_mutually_exclusive_group(required=True)
+    origen_h.add_argument("--gmail-token", type=Path, help="Token OAuth de Gmail (gmail.readonly)")
+    origen_h.add_argument("--correos", type=Path, help="Carpeta con correos .eml")
+    he.add_argument("--desde", required=True, type=date.fromisoformat)
+    he.add_argument("--hasta", type=date.fromisoformat, default=None, help="Por defecto, hoy")
+    he.add_argument("--historial", type=Path, default=Path("historial_camas.sqlite"))
+
+    me = sub.add_parser("modelo-estado", help="Entrena y valida ya el modelo que aprende del estado diario")
+    me.add_argument("--historial", type=Path, default=Path("historial_camas.sqlite"))
 
     d = sub.add_parser("datos-prueba", help="Genera datos sintéticos para probar el agente")
     d.add_argument("--salida", type=Path, default=Path("datos_prueba"))
@@ -112,10 +140,60 @@ def main(argv: list[str] | None = None) -> int:
             modelo.guardar(args.salida / f"modelo_trayectoria_{juego}.joblib")
         crudo = trayectoria.leer_egresos(args.egresos)
         etiquetas = trayectoria.etiquetas_diagnostico(crudo, modelos["tablero"].niveles["dx3"])
+        egreso = None
+        if args.modelo_ocupacion:
+            from .prediccion.ocupacion import ModeloEgresoDiario
+
+            egreso = ModeloEgresoDiario.cargar(args.modelo_ocupacion)
         (args.salida / "calculadora_trayectoria.html").write_text(
-            trayectoria.calculadora_html(modelos["tablero"], inf, etiquetas), encoding="utf-8")
+            trayectoria.calculadora_html(modelos["tablero"], inf, etiquetas, egreso), encoding="utf-8")
         print(f"Informe y modelos en {args.salida}. Para usarlo en el agente: "
               f"UCI_MODELO_TRAYECTORIA={args.salida / 'modelo_trayectoria_tablero.joblib'}")
+        return 0
+
+    if args.comando == "modelo-ocupacion":
+        import json
+
+        from .prediccion import ocupacion
+
+        camas = args.camas_totales or config_camas()
+        modelo, inf = ocupacion.entrenar_desde_archivo(args.egresos, args.corte, args.fin, camas)
+        args.salida.mkdir(parents=True, exist_ok=True)
+        (args.salida / "modelo_ocupacion.md").write_text(ocupacion.a_markdown(inf), encoding="utf-8")
+        (args.salida / "modelo_ocupacion.json").write_text(json.dumps(inf, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        modelo.guardar(args.salida / "modelo_ocupacion.joblib")
+        print(f"Informe y modelo en {args.salida}. Para usarlo en el plan de camas: "
+              f"UCI_MODELO_OCUPACION={args.salida / 'modelo_ocupacion.joblib'}")
+        return 0
+
+    if args.comando == "historial-entregas":
+        from .camas import aprendizaje
+        from .conectores.gmail import GmailAPI
+
+        fuente = GmailAPI(servicio_gmail(args.gmail_token)) if args.gmail_token else CarpetaCorreos(args.correos)
+        dias = aprendizaje.cargar_historico(fuente, args.desde, args.hasta or date.today(), args.historial)
+        for d in dias:
+            print(f"{d['fecha']:%d/%m/%Y}: {d['pacientes']} pacientes ({d['camas_entrega']} camas de {d['estaciones']} "
+                  f"estaciones en las entregas, {d['camas_tablero']} en el tablero)")
+        estados = aprendizaje.EstadosDiarios(args.historial)
+        try:
+            r = estados.resumen()
+        finally:
+            estados.cerrar()
+        print(f"Historial: {r['dias']} mañanas, {r['dias_paciente']} días-paciente, {r['etiquetados']} con desenlace y {r['egresos']} egresos. "
+              f"Para entrenar: python -m uci_control modelo-estado --historial {args.historial}")
+        if not dias:
+            print("No se encontraron entregas con camas en el formato estructurado ni tableros en esas fechas.")
+        return 0
+
+    if args.comando == "modelo-estado":
+        from .camas import aprendizaje
+
+        print(aprendizaje.actualizar(args.historial, date.today(), forzar=True))
+        ruta = aprendizaje.ruta_modelo(args.historial)
+        if ruta.exists():
+            print(f"Informe: {ruta.with_suffix('.md')}\nModelo: {ruta} (el plan de camas lo toma de ahí; "
+                  "UCI_MODELO_EGRESO_ESTADO cambia la ruta)")
         return 0
 
     if args.comando == "seguimiento":
@@ -152,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
         for aviso in r.avisos:
             logging.warning(aviso)
         print(f"{r.camas_tablero} camas del tablero, {r.entregas} entregas, {r.sugerencias} sugerencias.")
+        if r.aprendizaje:
+            print(r.aprendizaje)
         for clave, ruta in r.archivos.items():
             print(f"{clave}: {ruta}")
         if args.enviar:
@@ -177,9 +257,20 @@ def main(argv: list[str] | None = None) -> int:
         ruta.write_text(json.dumps(asdict(plan), ensure_ascii=False, indent=1, default=str), encoding="utf-8")
         print(f"Nivel {plan.nivel} ({plan.nivel_nombre}). {plan.libres} libres + {plan.egresos_esperados} egresos esperados "
               f"- {plan.demanda_esperada} ingresos esperados = brecha {plan.brecha:+}.")
+        if plan.fuente_egresos != "criterios de alta":
+            print(f"Los egresos esperados salen del {plan.fuente_egresos}; según los criterios de alta serían {plan.egresos_esperados_reglas}.")
+        if plan.egresos_esperados_historico is not None:
+            print(f"Egresos esperados hoy según los egresos de la clínica: {plan.egresos_esperados_historico}.")
         for p in plan.pacientes:
             if p.estado != "no":
                 print(f"  {p.cama}: {p.estado} -> {p.destino}; {', '.join(b['nombre'] for b in p.barreras)}")
+        if plan.ocupacion_7d:
+            from .prediccion.ocupacion import _DIAS
+
+            print("Ocupación esperada al comenzar cada día (intervalo 80%, probabilidad de llenar):")
+            for d in plan.ocupacion_7d:
+                lleno = f", {d['probabilidad_llena']:.0%}" if d["probabilidad_llena"] is not None else ""
+                print(f"  {_DIAS[d['fecha'].weekday()]} {d['fecha']:%d/%m}: {d['esperados']:.0f} ({d['p10']}-{d['p90']}{lleno})")
         print(f"Datos: {ruta}")
         return 0
 

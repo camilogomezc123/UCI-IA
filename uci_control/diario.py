@@ -41,6 +41,7 @@ class ResultadoDia:
     sugerencias: int = 0
     html_correo: str = ""
     avisos: list[str] = field(default_factory=list)
+    aprendizaje: str = ""  # estado del modelo que aprende del estado diario
 
 
 def leer_tableros(adjuntos: list[tuple[str, bytes]]) -> list[PacienteTablero]:
@@ -65,15 +66,19 @@ def correr_dia(fecha: date, fuente: FuenteCorreos, salida: Path, base_seguimient
                censo_csv: Path | None = None, costos_csv: Path | None = None, usar_ia: bool = False,
                historial_camas: Path | None = None, camas_totales: int | None = None,
                demanda_esperada: float | None = None) -> ResultadoDia:
+    from .camas.aprendizaje import EstadosDiarios, actualizar, fecha_de_estado, ultimas_por_estacion
+
     r = ResultadoDia(fecha)
     correos = list(fuente.entregas(fecha))
-    entregas = []
+    entregas, de_esta_manana = [], []
     adjuntos = [t for c in correos for t in c.tableros]
     for c in correos:
         e = parsear_entrega(c.texto, fuente=c.id, fecha_referencia=fecha)
         for adjunto in c.adjuntos_sin_leer:
             e.alertas.append(f"Adjunto sin leer (formato no soportado): {adjunto}")
         entregas.append(e)
+        if fecha_de_estado(c.fecha, None) in (fecha, None):
+            de_esta_manana.append((c, e))
     r.entregas = len(entregas)
     if not adjuntos:
         adjuntos = fuente.tableros(fecha)
@@ -92,9 +97,23 @@ def correr_dia(fecha: date, fuente: FuenteCorreos, salida: Path, base_seguimient
 
     riesgo = construir(pacientes)
     plan = None
+    ruta_historial = historial_camas or base_seguimiento.with_name("historial_camas.sqlite")
+    # Para el estado diario: de cada estación, la entrega más reciente que describe esta mañana.
+    camas_entrega = ultimas_por_estacion(de_esta_manana)
     if pacientes:
-        plan = gestionar_camas(fecha, pacientes, historial_camas or base_seguimiento.with_name("historial_camas.sqlite"),
-                               camas_totales, demanda_esperada)
+        plan = gestionar_camas(fecha, pacientes, ruta_historial, camas_totales, demanda_esperada, entregas=camas_entrega)
+    elif camas_entrega:  # sin tablero, el estado de la mañana sale solo de las entregas
+        estados = EstadosDiarios(ruta_historial)
+        try:
+            estados.registrar(fecha, [], camas_entrega)
+        finally:
+            estados.cerrar()
+    if pacientes or camas_entrega:
+        try:
+            r.aprendizaje = actualizar(ruta_historial, fecha)
+        except Exception as e:  # el aprendizaje nunca detiene el informe del día
+            log.warning("No se pudo actualizar el modelo del estado diario: %s", e)
+            r.aprendizaje = f"No se pudo actualizar el modelo del estado diario: {e}"
     camas = json.loads(json.dumps(asdict(plan), default=str)) if plan else None
     base = BaseSeguimiento(base_seguimiento)
     try:

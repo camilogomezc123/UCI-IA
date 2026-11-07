@@ -55,7 +55,7 @@ El destino es hospitalización cuando ORBIT ya marca criterio de piso y el NEWS 
 brecha = camas libres + egresos esperados − ingresos esperados
 ```
 
-Los egresos esperados son la suma de la probabilidad de egreso de cada paciente: 0,8 si está listo y ORBIT ya cambió el criterio, 0,6 si está listo pero ORBIT sigue en UCI, 0,35 si está casi y 0,05 si no. Los ingresos esperados son las solicitudes diarias por la proporción que termina en ingreso (configurable con `UCI_PARAMETROS`, o `--demanda` en la línea de comandos).
+Los egresos esperados son la suma de la probabilidad de egreso de cada paciente: 0,8 si está listo y ORBIT ya cambió el criterio, 0,6 si está listo pero ORBIT sigue en UCI, 0,35 si está casi y 0,05 si no. Cuando el modelo que aprende del estado diario ya superó a las referencias en su validación, la brecha usa sus probabilidades y el informe muestra las otras estimaciones al lado ([EGRESO_DIARIO.md](EGRESO_DIARIO.md)). Los ingresos esperados son las solicitudes diarias por la proporción que termina en ingreso (configurable con `UCI_PARAMETROS`, o `--demanda` en la línea de comandos).
 
 **Nivel de escalamiento**, como en OPEL:
 
@@ -66,7 +66,9 @@ Los egresos esperados son la suma de la probabilidad de egreso de cada paciente:
 | 3 Presión alta | Ocupación mayor de 95%, brecha de -3 o menos, o 10% de las camas con paciente listo | Un responsable por paciente listo; escalar a aseguradores; usar intermedio como puente |
 | 4 Crítico | Ocupación de 100%, brecha de -3 o menos y 15% de camas con paciente listo | Plan de contingencia; gerencia y aseguradores el mismo día; triage por gravedad |
 
-**Historial** (`camas/historial.py`): guarda una foto diaria del tablero (cama, seudónimo, estado de alta, fecha esperada, barreras). Desde el segundo día detecta egresos (quien deja de aparecer), cuenta días rojos, marca fechas esperadas vencidas y calcula qué porcentaje de los pacientes listos salió al día siguiente.
+**Historial** (`camas/historial.py`): guarda una foto diaria del tablero (cama, seudónimo, estado de alta, fecha esperada, barreras). Desde el segundo día detecta egresos (quien deja de aparecer), cuenta días rojos, marca fechas esperadas vencidas y calcula qué porcentaje de los pacientes listos salió al día siguiente. En la misma base, `camas/aprendizaje.py` guarda el estado completo de cada mañana (tablero y entregas) para aprender quién sale.
+
+**Ocupación de los próximos 7 días** (`prediccion/ocupacion.py`, con `UCI_MODELO_OCUPACION`): probabilidad de egreso de cada paciente según los egresos de la clínica, ocupación esperada de cada mañana con su intervalo del 80% y la probabilidad de llenar la unidad. Validación y detalle: [EGRESO_DIARIO.md](EGRESO_DIARIO.md).
 
 ## Uso
 
@@ -83,5 +85,5 @@ python -m uci_control diario --gmail-token token.json --camas-totales 66 --envia
 - **Hora de egreso real.** El tablero es una foto diaria; con la hora de salida de ORBIT se mide el porcentaje de egresos antes del mediodía (meta SAFER) y los egresos fuera de horario.
 - **Gases y Glasgow.** Con PaO2/FiO2, PaCO2 y Glasgow el SWIFT deja de ser parcial.
 - **Estancia esperada con datos de la clínica.** Con `UCI_MODELO_TRAYECTORIA` los días restantes (y la fecha esperada de egreso de los pacientes que aún no cumplen criterios) salen del modelo entrenado con los egresos 2024-2026, no de supuestos. Ver [MODELO_TRAYECTORIA.md](MODELO_TRAYECTORIA.md).
-- **Calibración.** Las probabilidades de egreso (0,8, 0,6, 0,35 y 0,05) son supuestos. Con un mes de historial se reemplazan por las observadas en la clínica; el mismo historial sirve para entrenar un modelo de predicción de egreso como el del estudio RTDC de Barnes.
+- **Calibración.** Las probabilidades de egreso por reglas (0,8, 0,6, 0,35 y 0,05) son supuestos. El agente ya guarda el estado de cada mañana y entrena un modelo de egreso con él, como el del estudio RTDC de Barnes; entra al plan cuando supera a las reglas en la validación (unas cuatro semanas de tableros diarios). Ver [EGRESO_DIARIO.md](EGRESO_DIARIO.md).
 - **Demanda real.** Con la trazabilidad de solicitudes de cama del día se reemplaza el promedio por la demanda observada por día de la semana y franja horaria (`prediccion/demanda.py`).

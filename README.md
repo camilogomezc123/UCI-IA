@@ -31,6 +31,8 @@ Facturación (cargos)      ─┘   (16 reglas)               (Claude + verifica
 | Demanda y capacidad | `uci_control/prediccion/demanda.py` | Métricas de la trazabilidad de camas, modelo logístico de rechazo de solicitudes (AUC por validación cruzada) y escenarios Erlang-B de capacidad. |
 | Pronóstico | `uci_control/prediccion/pronostico.py` | Holt con tendencia amortiguada e intervalo del 90% para series mensuales. |
 | Destino y estancia | `uci_control/prediccion/trayectoria.py` | Modelos entrenados con los egresos de la clínica: salida directa desde UCI o paso por piso, reingreso a UCI, UCI de más de 7 días y cuantiles de días en UCI y en el hospital, con validación temporal. Ver `docs/MODELO_TRAYECTORIA.md`. |
+| Egreso diario y ocupación | `uci_control/prediccion/ocupacion.py` | Probabilidad de que cada paciente salga hoy según los egresos de la clínica y ocupación esperada de los próximos 7 días con intervalo del 80% y probabilidad de llenar la unidad, validados contra el censo reconstruido. Ver `docs/EGRESO_DIARIO.md`. |
+| Estado diario | `uci_control/camas/aprendizaje.py` | Guarda cada mañana el estado de cada paciente (tablero y entregas), lo etiqueta al día siguiente y reentrena cada semana un modelo de egreso que entra al plan de camas cuando supera a las referencias. |
 
 ```bash
 python -m uci_control riesgo --tablero Reporte_TableroControlUCI1.xlsx --salida salida/
@@ -39,6 +41,14 @@ python -m uci_control riesgo --tablero Reporte_TableroControlUCI1.xlsx --salida 
 # Destino y estancia con los egresos de la clínica
 python -m uci_control modelo-trayectoria --egresos egresos_uci.xlsx --salida modelos/
 export UCI_MODELO_TRAYECTORIA=modelos/modelo_trayectoria_tablero.joblib
+
+# Egreso diario y ocupación de los próximos 7 días
+python -m uci_control modelo-ocupacion --egresos egresos_uci.xlsx --camas-totales 66 --salida modelos/
+export UCI_MODELO_OCUPACION=modelos/modelo_ocupacion.joblib
+
+# Estado diario: cargar lo que ya está en el buzón y entrenar (la corrida diaria lo hace sola cada semana)
+python -m uci_control historial-entregas --gmail-token token.json --desde 2026-10-15 --historial historial_camas.sqlite
+python -m uci_control modelo-estado --historial historial_camas.sqlite
 ```
 
 Los puntajes son reglas a partir de escalas validadas. La estancia y el destino ya se pueden calibrar con los egresos de la clínica (`modelo-trayectoria`); la mortalidad necesita el estado al egreso.

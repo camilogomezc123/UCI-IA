@@ -137,7 +137,7 @@ Una sola fecha tiene un techo con estos datos: decir a todos el mismo número de
 
 ## Calculadora
 
-`modelo-trayectoria` escribe también `calculadora_trayectoria.html`: una página autónoma que evalúa el modelo en el navegador (los árboles se exportan a JSON con `exportar_json`; una prueba verifica que da lo mismo que scikit-learn). Recibe edad, sexo, diagnóstico, asegurador, SOFA, Barthel, NEWS, fecha de ingreso y días que ya lleva, y muestra el camino más probable, la probabilidad de más de 7 días, los rangos de días y las fechas esperadas de egreso. No contiene datos de pacientes.
+`modelo-trayectoria` escribe también `calculadora_trayectoria.html`: una página autónoma que evalúa el modelo en el navegador (los árboles se exportan a JSON con `exportar_json`; una prueba verifica que da lo mismo que scikit-learn). Recibe edad, sexo, diagnóstico, asegurador, SOFA, Barthel, NEWS, fecha de ingreso y días que ya lleva, y muestra el camino más probable, la probabilidad de más de 7 días, los rangos de días y las fechas esperadas de egreso. Con `--modelo-ocupacion modelo_ocupacion.joblib` suma la probabilidad de salir de la UCI cada uno de los próximos 14 días según el modelo de egreso diario ([EGRESO_DIARIO.md](EGRESO_DIARIO.md)). No contiene datos de pacientes.
 
 ## Uso
 

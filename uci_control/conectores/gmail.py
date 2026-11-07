@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import email
+import os
 import re
 import zipfile
 from dataclasses import dataclass, field
@@ -19,8 +20,21 @@ from pathlib import Path
 from typing import Iterable, Protocol
 from xml.etree import ElementTree
 
-ASUNTO_ENTREGA = re.compile(r"entrega\s+de\s+turno", re.I)
+ASUNTO_ENTREGA = re.compile(r"entrega\s+(?:de\s+)?turno", re.I)
 ADJUNTO_TABLERO = re.compile(r"tablero.*\.xlsx$", re.I)
+
+
+def remitentes_entrega() -> list[str]:
+    """Buzones de las unidades que envían las entregas (UCI_REMITENTES_ENTREGA, separados por
+    coma). Sus correos cuentan como entrega aunque el asunto no lo diga."""
+    return [r.strip().lower() for r in os.environ.get("UCI_REMITENTES_ENTREGA", "").split(",") if r.strip()]
+
+
+def es_entrega(asunto: str, remitente: str = "") -> bool:
+    if ASUNTO_ENTREGA.search(asunto or ""):
+        return True
+    de = (remitente or "").lower()
+    return any(r in de for r in remitentes_entrega())
 
 
 @dataclass
@@ -31,6 +45,7 @@ class CorreoEntrega:
     texto: str
     adjuntos_sin_leer: list[str]
     tableros: list[tuple[str, bytes]] = field(default_factory=list)  # (nombre, contenido) del tablero ORBIT
+    remitente: str = ""
 
 
 class FuenteCorreos(Protocol):
@@ -46,7 +61,7 @@ class CarpetaCorreos:
     def entregas(self, fecha: date) -> Iterable[CorreoEntrega]:
         for ruta in sorted(self.carpeta.glob("*.eml")):
             mensaje = email.message_from_bytes(ruta.read_bytes(), policy=policy.default)
-            if not ASUNTO_ENTREGA.search(mensaje.get("Subject", "")):
+            if not es_entrega(mensaje.get("Subject", ""), mensaje.get("From", "")):
                 continue
             yield _correo_desde_mime(ruta.name, mensaje)
 
@@ -67,16 +82,28 @@ class GmailAPI:
         self.servicio = servicio
         self.consulta_extra = consulta_extra
 
+    def _ids(self, consulta: str, maximo: int = 500) -> list[str]:
+        usuarios, ids, pagina = self.servicio.users(), [], None
+        while len(ids) < maximo:
+            respuesta = usuarios.messages().list(userId="me", q=consulta, maxResults=100, pageToken=pagina).execute()
+            ids += [m["id"] for m in respuesta.get("messages", [])]
+            pagina = respuesta.get("nextPageToken")
+            if not pagina:
+                break
+        return ids
+
     def entregas(self, fecha: date) -> Iterable[CorreoEntrega]:
+        """Entregas de turno del día y del siguiente: asunto con "entrega" y "turno", o enviadas
+        desde los buzones de UCI_REMITENTES_ENTREGA."""
         desde = fecha.strftime("%Y/%m/%d")
         hasta = (fecha + timedelta(days=2)).strftime("%Y/%m/%d")
-        consulta = f'subject:("entrega de turno") after:{desde} before:{hasta} {self.consulta_extra}'.strip()
+        filtro = " OR ".join(["subject:(entrega turno)"] + [f"from:{r}" for r in remitentes_entrega()])
+        consulta = f"({filtro}) after:{desde} before:{hasta} {self.consulta_extra}".strip()
         usuarios = self.servicio.users()
-        respuesta = usuarios.messages().list(userId="me", q=consulta, maxResults=100).execute()
-        for ref in respuesta.get("messages", []):
-            crudo = usuarios.messages().get(userId="me", id=ref["id"], format="raw").execute()
+        for ident in self._ids(consulta):
+            crudo = usuarios.messages().get(userId="me", id=ident, format="raw").execute()
             mensaje = email.message_from_bytes(base64.urlsafe_b64decode(crudo["raw"]), policy=policy.default)
-            yield _correo_desde_mime(ref["id"], mensaje)
+            yield _correo_desde_mime(ident, mensaje)
 
     def tableros(self, fecha: date) -> list[tuple[str, bytes]]:
         """Tableros ORBIT ("Reporte_TableroControlUCI1<fecha>.xlsx") adjuntos en el buzón ese día."""
@@ -84,12 +111,11 @@ class GmailAPI:
         hasta = (fecha + timedelta(days=2)).strftime("%Y/%m/%d")
         consulta = f"has:attachment filename:xlsx tablero after:{desde} before:{hasta}"
         usuarios = self.servicio.users()
-        respuesta = usuarios.messages().list(userId="me", q=consulta, maxResults=50).execute()
         hallados = []
-        for ref in respuesta.get("messages", []):
-            crudo = usuarios.messages().get(userId="me", id=ref["id"], format="raw").execute()
+        for ident in self._ids(consulta, maximo=100):
+            crudo = usuarios.messages().get(userId="me", id=ident, format="raw").execute()
             mensaje = email.message_from_bytes(base64.urlsafe_b64decode(crudo["raw"]), policy=policy.default)
-            hallados += _correo_desde_mime(ref["id"], mensaje).tableros
+            hallados += _correo_desde_mime(ident, mensaje).tableros
         return hallados
 
     def enviar(self, destinatarios: list[str], asunto: str, html: str, adjuntos: dict[str, bytes] | None = None) -> str:
@@ -130,6 +156,7 @@ def _correo_desde_mime(identificador: str, mensaje) -> CorreoEntrega:
         texto="\n\n".join(partes),
         adjuntos_sin_leer=sin_leer,
         tableros=tableros,
+        remitente=str(mensaje.get("From", "")),
     )
 
 

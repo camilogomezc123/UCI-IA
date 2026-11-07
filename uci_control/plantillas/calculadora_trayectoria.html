@@ -76,7 +76,15 @@ th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line
 th { font-size: 12px; color: var(--muted); font-weight: 600 }
 td.n { font-family: var(--f-mono); text-align: right; white-space: nowrap } th.n { text-align: right }
 .nota { font-size: 13px; color: var(--muted); margin: 10px 0 0 }
-@media (prefers-reduced-motion: reduce) { .barra div, .dist .bar i { transition: none } }
+.dias14 { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 4px; align-items: end; margin-top: 8px }
+@media (max-width: 520px) { .dias14 { grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 12px } }
+.dias14 .col { display: grid; gap: 3px; text-align: center }
+.dias14 .bar { height: 56px; display: flex; align-items: flex-end; background: var(--bg); border-radius: 3px; overflow: hidden }
+.dias14 .bar i { display: block; width: 100%; background: var(--accent); transition: height .35s ease }
+.dias14 .finde .bar i { background: var(--muted); opacity: .6 }
+.dias14 .p { font-family: var(--f-mono); font-size: 12px; font-variant-numeric: tabular-nums }
+.dias14 .e { font-size: 11px; color: var(--muted); line-height: 1.25 }
+@media (prefers-reduced-motion: reduce) { .barra div, .dist .bar i, .dias14 .bar i { transition: none } }
 </style>
 
 <div class="wrap">
@@ -163,6 +171,13 @@ td.n { font-family: var(--f-mono); text-align: right; white-space: nowrap } th.n
         <p class="nota">Con los datos del ingreso una fecha exacta acierta poco (±2 días en 56% de los egresos de UCI). Las probabilidades por rango son más confiables: están calibradas y mejoran 18% (UCI) y 25% (hospital) sobre usar el promedio histórico.</p>
       </div>
 
+      <div class="panel" id="pDia" hidden>
+        <p class="eyebrow">Qué día puede salir de la UCI</p>
+        <div class="t" style="font-size:14px">Probabilidad (%) de que salga cada uno de los próximos 14 días</div>
+        <div class="dias14" id="d14" role="img"></div>
+        <p class="nota" id="n14"></p>
+      </div>
+
       <div class="aviso"><b>Sobre "sale desde UCI".</b> El archivo de egresos no dice si el paciente salió vivo, remitido o fallecido. Este camino incluye a todo el que dejó el hospital con la UCI como último servicio, y hay señales de que ahí quedan fallecidos (presión agónica registrada, más frecuente con SOFA alto). Con la columna de estado al egreso se separan.</div>
     </section>
   </div>
@@ -188,6 +203,7 @@ td.n { font-family: var(--f-mono); text-align: right; white-space: nowrap } th.n
 
 <script>
 const M = __MODELO__;
+const EG = __EGRESO__;
 const DX = __DX__;
 const META = __META__;
 
@@ -245,6 +261,26 @@ function predecir(vals) {
   return out;
 }
 
+// ---- salida día a día con el modelo de egreso diario (igual a ocupacion.curva_json)
+function salidaDiaria(vals, f0, lleva, n = 14) {
+  const base = EG.numericas.map(c => (vals[c] === null || vals[c] === undefined || Number.isNaN(vals[c])) ? null : +vals[c]);
+  const cats = Object.entries(EG.categoricas).map(([c, niv]) => {
+    let cod = niv.indexOf(vals[c]); if (cod < 0) cod = niv.indexOf("OTRO");
+    const con = EG.conocidos[c]; return con && !con.includes(cod) ? null : cod;
+  });
+  const iD = EG.numericas.indexOf("dias_en_uci"), iS = EG.numericas.indexOf("dia_semana_egreso");
+  // Con 0 días el primer egreso posible es mañana; con L días es hoy y la fila es la de anoche (día L - 1).
+  const k0 = Math.max(lleva - 1, 0), primero = lleva > 0 ? lleva : 1;
+  let sigue = 1; const out = [];
+  for (let j = 0; j < n; j++) {
+    const dia = new Date(f0.getTime() + (primero + j) * 864e5);
+    const fila = base.slice(); fila[iD] = Math.min(k0 + j, EG.dias_max); fila[iS] = (dia.getUTCDay() + 6) % 7;
+    const h = 1 / (1 + Math.exp(-(suma(EG, fila.concat(cats)) + EG.ajuste)));
+    out.push({ dia, sale: sigue * h, sigue: sigue * (1 - h) }); sigue *= 1 - h;
+  }
+  return out;
+}
+
 // ---- mediana condicional de los días que faltan (log-normal, igual a restante_condicional)
 function invNorm(p) {
   const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
@@ -288,7 +324,8 @@ function leer() {
            sexo: document.querySelector(".seg [aria-pressed=true]")?.dataset.v ?? null, asegurador: $("aseg").value, dx3, agrupador: agrupador(dx) };
 }
 function render() {
-  const r = predecir(leer());
+  const vals = leer();
+  const r = predecir(vals);
   const c = r.camino; const top = Object.keys(c).reduce((a, b) => c[a] > c[b] ? a : b);
   $("camino").textContent = NOMBRE[top]; $("caminoTxt").textContent = TXT[top];
   [["bU", "sale_desde_uci"], ["bP", "piso_y_alta"], ["bV", "vuelve_a_uci"]].forEach(([id, k]) => { $(id).style.flex = `0 0 ${c[k] * 100}%`; $(id).textContent = c[k] >= .08 ? pct(c[k]) : "" });
@@ -309,6 +346,17 @@ function render() {
     const fmt = d => d.toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
     const mas = n => new Date(f0.getTime() + Math.round(n) * 864e5);
     $("fechas").innerHTML = `<span>Egreso esperado de UCI: <b>${fmt(mas(lleva > 0 ? lleva + restante(...r.dias_uci, lleva) : r.dias_uci[1]))}</b></span><span>Del hospital: <b>${fmt(mas(r.dias_total[1]))}</b></span>`;
+  }
+  $("pDia").hidden = !(EG && f0);
+  if (EG && f0) {
+    const c = salidaDiaria(vals, f0, lleva); const mx = Math.max(...c.map(d => d.sale));
+    const dia = d => d.toLocaleDateString("es-CO", { weekday: "short", timeZone: "UTC" }).replace(".", "");
+    $("d14").innerHTML = c.map(d => `<div class="col${(d.dia.getUTCDay() % 6) === 0 ? " finde" : ""}"><span class="p">${Math.round(d.sale * 100)}</span><div class="bar"><i style="height:${Math.max(d.sale / mx * 100, 2)}%"></i></div><span class="e">${dia(d.dia)}<br>${d.dia.getUTCDate()}</span></div>`).join("");
+    $("d14").setAttribute("aria-label", c.map(d => `${dia(d.dia)} ${d.dia.getUTCDate()}: ${pct(d.sale)}`).join(", "));
+    $("n14").textContent = (lleva > 0
+      ? `Sigue en UCI dentro de 7 días: ${pct(c[6].sigue)}; dentro de 14: ${pct(c[13].sigue)}. `
+      : `Sigue en UCI después de 7 días: ${pct(c[6].sigue)} (el modelo de estancia de arriba estima ${pct(r.uci_prolongada)}; son dos modelos distintos y la diferencia da una idea de la incertidumbre). Después de 14: ${pct(c[13].sigue)}. `)
+      + "En gris, sábado y domingo: salen menos pacientes. Es el modelo de egreso diario del pronóstico de ocupación, que sí conoce el día de la semana.";
   }
 }
 document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => { document.querySelectorAll(".seg button").forEach(o => o.setAttribute("aria-pressed", o === b)); render() }));
