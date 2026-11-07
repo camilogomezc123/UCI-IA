@@ -59,6 +59,19 @@ def test_modelo_y_tablero(x, tmp_path, monkeypatch):
     assert pred.dias_uci[0] <= pred.dias_uci[1] <= pred.dias_uci[2]
     assert pred.dias_uci_restantes >= 0.5
 
+    assert abs(sum(pred.trayectoria.values()) - 1) < 1e-6
+    assert pred.destino in ("sale desde uci", "piso y alta", "vuelve a uci")
+
+    # el JSON para la calculadora web da lo mismo que scikit-learn
+    js = t.exportar_json(modelo)
+    muestra = ventana.sample(60, random_state=1)
+    esperado = modelo.predecir(muestra)
+    for idx, fila in muestra.iterrows():
+        valores = {c: (None if fila[c] != fila[c] else fila[c]) for c in js["numericas"] + list(js["categoricas"])}
+        obtenido = t.predecir_json(js, valores)
+        for k, v in obtenido.items():
+            assert v == pytest.approx(esperado.loc[idx, k], abs=1e-3), k
+
     monkeypatch.setenv("UCI_MODELO_TRAYECTORIA", str(ruta))
     ev = evaluar(pacientes[0])
     assert ev.trayectoria is not None
@@ -70,6 +83,9 @@ def test_cli(tmp_path):
     assert main(["modelo-trayectoria", "--egresos", str(archivo), "--salida", str(tmp_path / "out")]) == 0
     inf = json.loads((tmp_path / "out" / "modelo_trayectoria.json").read_text())
     assert set(inf["validacion"]) == {"tablero", "ingreso"}
+    assert "trayectoria" in inf["validacion"]["tablero"] and inf["validacion_movil"]
     md = (tmp_path / "out" / "modelo_trayectoria.md").read_text()
     assert "SINT" not in md and "SINTETICO" not in md
     assert (tmp_path / "out" / "modelo_trayectoria_tablero.joblib").exists()
+    html = (tmp_path / "out" / "calculadora_trayectoria.html").read_text()
+    assert "__MODELO__" not in html and "SINT" not in html and '"binarios"' in html

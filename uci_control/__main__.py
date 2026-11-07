@@ -110,6 +110,10 @@ def main(argv: list[str] | None = None) -> int:
                                                             encoding="utf-8")
         for juego, modelo in modelos.items():
             modelo.guardar(args.salida / f"modelo_trayectoria_{juego}.joblib")
+        crudo = trayectoria.leer_egresos(args.egresos)
+        etiquetas = trayectoria.etiquetas_diagnostico(crudo, modelos["tablero"].niveles["dx3"])
+        (args.salida / "calculadora_trayectoria.html").write_text(
+            trayectoria.calculadora_html(modelos["tablero"], inf, etiquetas), encoding="utf-8")
         print(f"Informe y modelos en {args.salida}. Para usarlo en el agente: "
               f"UCI_MODELO_TRAYECTORIA={args.salida / 'modelo_trayectoria_tablero.joblib'}")
         return 0

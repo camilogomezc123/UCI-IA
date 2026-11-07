@@ -135,6 +135,7 @@ def preparar(df: pd.DataFrame) -> pd.DataFrame:
     x["dias_uci"] = d["dias_uci"].astype(float)
     x["dias_total"] = d["dias_total"].astype(float)
     x["uci_prolongada"] = (x["dias_uci"] > UMBRAL_UCI_PROLONGADA).astype(int)
+    x["trayectoria"] = np.where(x["rebote_uci"] == 1, 2, np.where(x["alta_directa"] == 1, 0, 1))
     return x
 
 
@@ -165,20 +166,25 @@ def _niveles(x: pd.DataFrame, minimo: int = 25) -> dict[str, list[str]]:
     return {c: sorted(k for k, n in x[c].value_counts().items() if n >= minimo and k != "OTRO") for c in cat}
 
 
+# Árboles pequeños (7 hojas, 60 pacientes por hoja) y 200 rondas: en la validación temporal
+# superan a los de 15 hojas y 300 rondas en destino, estancia prolongada y reingreso.
+HIPERPARAMETROS = dict(max_iter=200, learning_rate=0.05, max_leaf_nodes=7, min_samples_leaf=60, l2_regularization=1.0,
+                       categorical_features="from_dtype", random_state=7)
+
+
 def _clasificador():
     from sklearn.ensemble import HistGradientBoostingClassifier
-    return HistGradientBoostingClassifier(max_iter=300, learning_rate=0.04, max_leaf_nodes=15, min_samples_leaf=40,
-                                          l2_regularization=1.0, categorical_features="from_dtype", random_state=7)
+    return HistGradientBoostingClassifier(**HIPERPARAMETROS)
 
 
 def _regresor(q: float):
     from sklearn.ensemble import HistGradientBoostingRegressor
-    return HistGradientBoostingRegressor(loss="quantile", quantile=q, max_iter=300, learning_rate=0.04,
-                                         max_leaf_nodes=15, min_samples_leaf=40, categorical_features="from_dtype",
-                                         random_state=7)
+    return HistGradientBoostingRegressor(loss="quantile", quantile=q, **HIPERPARAMETROS)
 
 
 BINARIOS = ("alta_directa", "rebote_uci", "uci_prolongada")
+# Camino completo, excluyentes: sale del hospital desde UCI, pasa a piso y sale, o vuelve a UCI.
+TRAYECTORIAS = ("sale_desde_uci", "piso_y_alta", "vuelve_a_uci")
 CONTINUOS = ("dias_uci", "dias_total")
 
 
@@ -188,8 +194,9 @@ class ModeloTrayectoria:
     niveles: dict[str, list[str]]
     clasificadores: dict[str, object]
     regresores: dict[str, dict[float, object]]
-    entrenado_hasta: str
-    n_entrenamiento: int
+    multiclase: object | None = None
+    entrenado_hasta: str = ""
+    n_entrenamiento: int = 0
     metricas: dict = field(default_factory=dict)
 
     def predecir(self, x: pd.DataFrame | dict | list[dict]) -> pd.DataFrame:
@@ -200,6 +207,10 @@ class ModeloTrayectoria:
         out = pd.DataFrame(index=x.index)
         for y, clf in self.clasificadores.items():
             out[f"p_{y}"] = clf.predict_proba(m)[:, 1]
+        if self.multiclase is not None:
+            pm = self.multiclase.predict_proba(m)
+            for i, nombre in enumerate(TRAYECTORIAS):
+                out[f"p_{nombre}"] = pm[:, i]
         for y, regs in self.regresores.items():
             # Se modela log(1 + días) y se ordenan los cuantiles para que no se crucen.
             qs = np.sort(np.column_stack([regs[q].predict(m) for q in CUANTILES]), axis=1)
@@ -223,7 +234,8 @@ def ajustar(x: pd.DataFrame, juego: str = "tablero") -> ModeloTrayectoria:
     m = _matriz(x, juego, niveles)
     clfs = {y: _clasificador().fit(m, x[y]) for y in BINARIOS}
     regs = {y: {q: _regresor(q).fit(m, np.log1p(x[y])) for q in CUANTILES} for y in CONTINUOS}
-    return ModeloTrayectoria(juego, niveles, clfs, regs, str(x["fecha_ingreso"].max().date()), len(x))
+    multi = _clasificador().fit(m, x["trayectoria"])
+    return ModeloTrayectoria(juego, niveles, clfs, regs, multi, str(x["fecha_ingreso"].max().date()), len(x))
 
 
 def ventana_completa(x: pd.DataFrame, inicio: str, fin: str) -> pd.DataFrame:
@@ -279,8 +291,60 @@ def validar(x: pd.DataFrame, corte: str, fin_prueba: str, juego: str) -> dict:
                              "acierto_banda_sin_modelo": round(float(np.mean(_bandas(yt) == _bandas(np.full_like(yt, round(base))))), 3),
                              "spearman": round(float(pd.Series(yt).corr(pd.Series(p50), method="spearman")), 3),
                              "dias_cama_observados": int(yt.sum()), "dias_cama_predichos_mediana": int(p50.sum())}
+    from sklearn.metrics import log_loss
+
+    yt = pru["trayectoria"].to_numpy()
+    pm = pred[[f"p_{n}" for n in TRAYECTORIAS]].to_numpy()
+    previa = np.bincount(ent["trayectoria"], minlength=3) / len(ent)
+    r["trayectoria"] = {"clases": {n: {"prevalencia_prueba": round(float((yt == i).mean()), 3), "auc": _auc(yt == i, pm[:, i]),
+                                       "probabilidad_media": round(float(pm[:, i].mean()), 3)} for i, n in enumerate(TRAYECTORIAS)},
+                        "log_loss": round(float(log_loss(yt, pm, labels=[0, 1, 2])), 3),
+                        "log_loss_sin_modelo": round(float(log_loss(yt, np.tile(previa, (len(yt), 1)), labels=[0, 1, 2])), 3),
+                        "acierto_clase_mas_probable": round(float((pm.argmax(1) == yt).mean()), 3),
+                        "acierto_sin_modelo": round(float((yt == previa.argmax()).mean()), 3)}
+    r["ic95"] = _bootstrap(pru, pred)
     r["importancia"] = _importancia(modelo, pru)
     return r
+
+
+def _bootstrap(pru: pd.DataFrame, pred: pd.DataFrame, veces: int = 300, semilla: int = 7) -> dict[str, list[float]]:
+    """Intervalo del 95% del AUC por remuestreo de los pacientes de prueba."""
+    from sklearn.metrics import roc_auc_score
+
+    r = np.random.default_rng(semilla)
+    n = len(pru)
+    out = {}
+    for y in BINARIOS:
+        yt, p = pru[y].to_numpy(), pred[f"p_{y}"].to_numpy()
+        aucs = []
+        for _ in range(veces):
+            i = r.integers(0, n, n)
+            if yt[i].min() != yt[i].max():
+                aucs.append(roc_auc_score(yt[i], p[i]))
+        out[y] = [round(float(np.percentile(aucs, 2.5)), 3), round(float(np.percentile(aucs, 97.5)), 3)]
+    return out
+
+
+def validacion_movil(x: pd.DataFrame, juego: str, cortes: list[str], meses: int = 3) -> list[dict]:
+    """Origen móvil: para cada corte entrena con lo anterior y prueba en los `meses` siguientes.
+    Muestra si el desempeño se sostiene en el tiempo y no depende de un solo corte."""
+    filas = []
+    for corte in cortes:
+        fin = str((pd.Timestamp(corte) + pd.DateOffset(months=meses) - pd.Timedelta(days=1)).date())
+        ent = x[x["fecha_ingreso"] < corte]
+        pru = x[(x["fecha_ingreso"] >= corte) & (x["fecha_ingreso"] <= fin)]
+        if len(pru) < 60 or len(ent) < 300:
+            continue
+        modelo = ajustar(ent, juego)
+        pred = modelo.predecir(pru)
+        fila = {"corte": corte, "n_entrenamiento": len(ent), "n_prueba": len(pru)}
+        for y in BINARIOS:
+            fila[f"auc_{y}"] = _auc(pru[y], pred[f"p_{y}"])
+        for y in CONTINUOS:
+            fila[f"mae_{y}"] = round(float(np.mean(np.abs(pru[y] - pred[f"{y}_p50"]))), 2)
+            fila[f"mae_{y}_sin_modelo"] = round(float(np.mean(np.abs(pru[y] - ent[y].median()))), 2)
+        filas.append(fila)
+    return filas
 
 
 def _importancia(modelo: ModeloTrayectoria, pru: pd.DataFrame) -> dict[str, list[tuple[str, float]]]:
@@ -305,6 +369,113 @@ def perfiles(x: pd.DataFrame) -> dict:
     s = s.groupby("sofa", observed=False).agg(n=("dias_uci", "size"), uci_mediana=("dias_uci", "median"),
                                               total_mediana=("dias_total", "median"), alta_directa=("alta_directa", "mean"))
     return {"agrupador": g.round(3).reset_index().to_dict("records"), "sofa": s.round(3).reset_index().astype({"sofa": str}).to_dict("records")}
+
+
+# ---------------------------------------------------------------- exportación a JSON
+
+def _traductor(est, columnas: list[str], niveles: dict[str, list[str]]):
+    """scikit-learn reordena las variables (categóricas primero) y recodifica cada categoría
+    según las vistas en el entrenamiento. Se devuelve cómo volver al orden y a los códigos de
+    `exportar_json`, y qué códigos conoce el modelo (los demás se tratan como faltantes)."""
+    pre = est._preprocessor
+    if pre is None:
+        return list(range(len(columnas))), {}, {}
+    _, enc, es_cat = pre.transformers_[0]
+    cat_idx = [i for i, c in enumerate(es_cat) if c]
+    num_idx = [i for i, c in enumerate(es_cat) if not c]
+    orden = cat_idx + num_idx  # índice transformado -> índice original
+    codigos, conocidos = {}, {}
+    for k, i in enumerate(cat_idx):
+        nombre = columnas[i]
+        mapa = [niveles[nombre].index(str(v)) for v in enc.categories_[k]]
+        codigos[k] = mapa
+        conocidos[nombre] = sorted(mapa)
+    return orden, codigos, conocidos
+
+
+def _arbol_json(pred, orden: list[int], codigos: dict[int, list[int]]) -> list:
+    """Nodos compactos: hoja [valor]; numérico [variable, umbral, izq, der, faltante_izq];
+    categórico [variable, [códigos a la izquierda], izq, der, faltante_izq]."""
+    bits = pred.raw_left_cat_bitsets
+    nodos = []
+    for nd in pred.nodes:
+        if nd["is_leaf"]:
+            nodos.append([round(float(nd["value"]), 6)])
+            continue
+        f = int(nd["feature_idx"])
+        if nd["is_categorical"]:
+            b = bits[nd["bitset_idx"]]
+            crudos = [c for c in range(32 * len(b)) if (int(b[c // 32]) >> (c % 32)) & 1]
+            izq = sorted(codigos[f][c] for c in crudos if c < len(codigos[f]))
+            nodos.append([orden[f], izq, int(nd["left"]), int(nd["right"]), int(nd["missing_go_to_left"])])
+        else:
+            nodos.append([orden[f], float(nd["num_threshold"]), int(nd["left"]), int(nd["right"]),
+                          int(nd["missing_go_to_left"])])
+    return nodos
+
+
+def _estimador_json(est, columnas: list[str], niveles: dict[str, list[str]], conocidos: dict) -> dict:
+    orden, codigos, con = _traductor(est, columnas, niveles)
+    conocidos.update(con)
+    return {"base": [float(v) for v in np.ravel(est._baseline_prediction)],
+            "arboles": [[_arbol_json(p, orden, codigos) for p in iteracion] for iteracion in est._predictors]}
+
+
+def exportar_json(modelo: ModeloTrayectoria) -> dict:
+    """El modelo como datos (sin código ni pacientes) para evaluarlo en una página web.
+    Las variables van en el orden numéricas + categóricas; cada categórica se codifica por su
+    posición en `categoricas` y los códigos fuera de `conocidos` cuentan como faltantes."""
+    num, cat = JUEGOS[modelo.juego]
+    cols = num + cat
+    niveles = {c: modelo.niveles[c] + ["OTRO"] for c in cat}
+    con: dict = {}
+    js = {"juego": modelo.juego, "entrenado_hasta": modelo.entrenado_hasta, "n_entrenamiento": modelo.n_entrenamiento,
+          "numericas": num, "categoricas": niveles, "cuantiles": list(CUANTILES),
+          "binarios": {y: _estimador_json(e, cols, niveles, con) for y, e in modelo.clasificadores.items()},
+          "trayectoria": {"clases": list(TRAYECTORIAS), **_estimador_json(modelo.multiclase, cols, niveles, con)},
+          "continuos": {y: [_estimador_json(regs[q], cols, niveles, con) for q in CUANTILES]
+                        for y, regs in modelo.regresores.items()}}
+    js["conocidos"] = con
+    return js
+
+
+def _suma_arboles(est: dict, fila: list, k: int = 0) -> float:
+    total = est["base"][k]
+    for iteracion in est["arboles"]:
+        nodos, i = iteracion[k], 0
+        while len(nodos[i]) > 1:
+            f, regla, izq, der, falt = nodos[i]
+            v = fila[f]
+            if v is None:
+                i = izq if falt else der
+            elif isinstance(regla, list):
+                i = izq if v in regla else der
+            else:
+                i = izq if v <= regla else der
+        total += nodos[i][0]
+    return total
+
+
+def predecir_json(js: dict, valores: dict) -> dict:
+    """Evaluador de referencia del JSON exportado (la página web hace lo mismo en JavaScript)."""
+    fila = []
+    for c in js["numericas"]:
+        v = valores.get(c)
+        fila.append(None if v is None or (isinstance(v, float) and math.isnan(v)) else float(v))
+    for c, niveles in js["categoricas"].items():
+        v = valores.get(c)
+        codigo = niveles.index(v) if v in niveles else niveles.index("OTRO")  # como _matriz
+        fila.append(codigo if codigo in js["conocidos"].get(c, range(len(niveles))) else None)
+    out = {f"p_{y}": 1 / (1 + math.exp(-_suma_arboles(e, fila))) for y, e in js["binarios"].items()}
+    t = js["trayectoria"]
+    z = [_suma_arboles(t, fila, k) for k in range(len(t["clases"]))]
+    ez = [math.exp(v - max(z)) for v in z]
+    out.update({f"p_{c}": e / sum(ez) for c, e in zip(t["clases"], ez)})
+    for y, ests in js["continuos"].items():
+        qs = sorted(_suma_arboles(e, fila) for e in ests)
+        for q, v in zip(js["cuantiles"], qs):
+            out[f"{y}_p{int(q * 100)}"] = max(math.expm1(v), 0.0)
+    return out
 
 
 # ---------------------------------------------------------------- uso diario
@@ -347,10 +518,13 @@ class PrediccionTrayectoria:
     dias_uci: tuple[float, float, float]  # p10, p50, p90 desde el ingreso a UCI
     dias_total: tuple[float, float, float]
     dias_uci_restantes: float | None = None
+    trayectoria: dict[str, float] = field(default_factory=dict)  # sale_desde_uci, piso_y_alta, vuelve_a_uci
 
     @property
     def destino(self) -> str:
-        return "casa desde UCI" if self.p_alta_directa >= 0.5 else "hospitalización antes del alta"
+        if self.trayectoria:
+            return max(self.trayectoria, key=self.trayectoria.get).replace("_", " ")
+        return "sale desde UCI" if self.p_alta_directa >= 0.5 else "piso y alta"
 
 
 def predecir_paciente(p: PacienteTablero, modelo: ModeloTrayectoria | None = None,
@@ -362,11 +536,40 @@ def predecir_paciente(p: PacienteTablero, modelo: ModeloTrayectoria | None = Non
     uci = tuple(round(float(f[f"dias_uci_p{q}"]), 1) for q in (10, 50, 90))
     tot = tuple(round(float(f[f"dias_total_p{q}"]), 1) for q in (10, 50, 90))
     rest = restante_condicional(*uci, dias_uci) if dias_uci is not None else None
+    tray = {n: round(float(f[f"p_{n}"]), 3) for n in TRAYECTORIAS if f"p_{n}" in f}
     return PrediccionTrayectoria(round(float(f["p_alta_directa"]), 3), round(float(f["p_rebote_uci"]), 3),
-                                 round(float(f["p_uci_prolongada"]), 3), uci, tot, rest)
+                                 round(float(f["p_uci_prolongada"]), 3), uci, tot, rest, tray)
 
 
 # ---------------------------------------------------------------- entrenamiento completo
+
+def etiquetas_diagnostico(crudo: pd.DataFrame, codigos: list[str]) -> dict[str, str]:
+    """Nombre CIE-10 más frecuente de cada categoría de 3 caracteres (texto público, sin pacientes)."""
+    from collections import Counter, defaultdict
+
+    nombres: dict[str, Counter] = defaultdict(Counter)
+    for texto in crudo["diagnostico"].fillna(""):
+        for parte in str(texto).split(" | "):
+            if " - " in parte:
+                cod, nombre = parte.split(" - ", 1)
+                nombres[cod.strip()[:3]][nombre.strip()] += 1
+    return {c: nombres[c].most_common(1)[0][0].capitalize() for c in codigos if c != "OTRO" and nombres[c]}
+
+
+def calculadora_html(modelo: ModeloTrayectoria, informe: dict, etiquetas: dict[str, str]) -> str:
+    """Página autónoma (sin servidor) que evalúa el modelo en el navegador: el JSON exportado,
+    los nombres de los diagnósticos y las métricas de validación. No contiene datos de pacientes."""
+    import json
+
+    plantilla = (Path(__file__).resolve().parent.parent / "plantillas" / "calculadora_trayectoria.html").read_text(encoding="utf-8")
+    v = informe["validacion"][modelo.juego]
+    meta = {"validacion": {"binarios": {y: {k: b[k] for k in ("auc", "auc_solo_sofa")} for y, b in v["binarios"].items()},
+                           "continuos": v["continuos"], "trayectoria": v["trayectoria"]},
+            "prueba": v["prueba"], "movil": informe.get("validacion_movil", [])}
+    return (plantilla.replace("__MODELO__", json.dumps(exportar_json(modelo), separators=(",", ":")))
+            .replace("__DX__", json.dumps(etiquetas, ensure_ascii=False))
+            .replace("__META__", json.dumps(meta, ensure_ascii=False)))
+
 
 def leer_egresos(ruta: Path) -> pd.DataFrame:
     if ruta.suffix.lower() in (".xlsx", ".xls"):
@@ -392,6 +595,10 @@ def entrenar_desde_archivo(ruta: Path, corte: str | None = None, fin: str | None
                              "\"Alta directa\" es salir del hospital con la UCI como último servicio; si el archivo "
                              "incluye fallecidos en UCI, quedan en ese grupo"),
                "validacion": {j: validar(x, corte, fin, j) for j in JUEGOS}, "perfiles": perfiles(x)}
+    primero = x["fecha_ingreso"].quantile(0.4).to_period("M").start_time
+    ultimo = pd.Timestamp(fin) - pd.DateOffset(months=3)
+    cortes = [str(c.date()) for c in pd.date_range(primero, ultimo, freq="2MS")]
+    informe["validacion_movil"] = validacion_movil(x, "tablero", cortes)
     modelos = {j: ajustar(x, j) for j in JUEGOS}
     for j, m in modelos.items():
         m.metricas = informe["validacion"][j]
@@ -408,13 +615,21 @@ def a_markdown(inf: dict) -> str:
          f"Ingresos modelados: {inf['ingresos_modelados']} de {inf['archivo_filas']} (ventana {inf['ventana'][0]} a "
          f"{inf['ventana'][1]}). Validación temporal: entrenamiento antes de {inf['corte']}, prueba desde esa fecha.", "",
          f"Nota: {inf['alta_viva']}.", "", "## Desenlaces binarios (prueba)", "",
-         "| Desenlace | Juego | Prevalencia entren. | Prevalencia prueba | AUC | AUC solo SOFA | Brier | Brier sin modelo |",
+         "| Desenlace | Juego | Prevalencia entren. | Prevalencia prueba | AUC (IC 95%) | AUC solo SOFA | Brier | Brier sin modelo |",
          "|---|---|---|---|---|---|---|---|"]
     for y in BINARIOS:
         for j in JUEGOS:
             b = v[j]["binarios"][y]
             l.append(f"| {nombres[y]} | {j} | {b['prevalencia_entrenamiento']:.1%} | {b['prevalencia_prueba']:.1%} | "
-                     f"{b['auc']:.2f} | {b['auc_solo_sofa']:.2f} | {b['brier']:.3f} | {b['brier_sin_modelo']:.3f} |")
+                     f"{b['auc']:.2f} ({v[j]['ic95'][y][0]:.2f}-{v[j]['ic95'][y][1]:.2f}) | {b['auc_solo_sofa']:.2f} | {b['brier']:.3f} | {b['brier_sin_modelo']:.3f} |")
+    l += ["", "## Camino completo (prueba)", "",
+          "| Juego | Sale desde UCI | Piso y alta | Vuelve a UCI | Acierto clase más probable | Sin modelo | Log-loss | Sin modelo |",
+          "|---|---|---|---|---|---|---|---|"]
+    for j in JUEGOS:
+        tr = v[j]["trayectoria"]
+        aucs = " | ".join(f"AUC {tr['clases'][n]['auc']:.2f} ({tr['clases'][n]['prevalencia_prueba']:.0%})" for n in TRAYECTORIAS)
+        l.append(f"| {j} | {aucs} | {tr['acierto_clase_mas_probable']:.0%} | {tr['acierto_sin_modelo']:.0%} | "
+                 f"{tr['log_loss']:.3f} | {tr['log_loss_sin_modelo']:.3f} |")
     l += ["", "## Estancia (prueba)", "",
           "| Desenlace | Juego | Mediana observada | Error absoluto medio | Sin modelo | Cobertura p10-p90 | Acierto de banda | Banda sin modelo | Spearman |",
           "|---|---|---|---|---|---|---|---|---|"]
@@ -423,7 +638,15 @@ def a_markdown(inf: dict) -> str:
             c = v[j]["continuos"][y]
             l.append(f"| {nombres[y]} | {j} | {c['mediana_observada']:.0f} | {c['mae_mediana']:.1f} | {c['mae_sin_modelo']:.1f} | "
                      f"{c['cobertura_p10_p90']:.0%} | {c['acierto_banda']:.0%} | {c['acierto_banda_sin_modelo']:.0%} | {c['spearman']:.2f} |")
-    l += ["", "Bandas: 0-3, 4-7, 8-14 y 15 o más días.", "", "## Calibración del destino (juego ingreso, quintiles)", "",
+    l += ["", "Bandas: 0-3, 4-7, 8-14 y 15 o más días.", ""]
+    if inf.get("validacion_movil"):
+        l += ["## Estabilidad en el tiempo (origen móvil, juego tablero, 3 meses de prueba por corte)", "",
+              "| Corte | Prueba | AUC destino | AUC UCI > 7 días | AUC reingreso UCI | Error días UCI | Sin modelo |", "|---|---|---|---|---|---|---|"]
+        for f in inf["validacion_movil"]:
+            l.append(f"| {f['corte']} | {f['n_prueba']} | {f['auc_alta_directa']:.2f} | {f['auc_uci_prolongada']:.2f} | "
+                     f"{f['auc_rebote_uci']:.2f} | {f['mae_dias_uci']:.1f} | {f['mae_dias_uci_sin_modelo']:.1f} |")
+        l.append("")
+    l += [ "## Calibración del destino (juego ingreso, quintiles)", "",
           "| Predicho | Observado | n |", "|---|---|---|"]
     for c in v["ingreso"]["binarios"]["alta_directa"]["calibracion"]:
         l.append(f"| {c['predicho']:.0%} | {c['observado']:.0%} | {c['n']} |")

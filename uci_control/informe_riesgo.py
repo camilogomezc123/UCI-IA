@@ -56,12 +56,16 @@ def a_markdown(pacientes: list[PacienteTablero]) -> str:
     con_modelo = [f for f in filas if f["evaluacion"].get("trayectoria")]
     if con_modelo:
         lineas += ["", "## Destino y estancia esperados (modelo entrenado con los egresos de la clínica)", "",
-                   "| Cama | Sale del hospital desde UCI | Reingreso a UCI | UCI > 7 días | Días UCI p10-p50-p90 | "
-                   "Días UCI que faltan | Días hospital p50 |", "|---|---|---|---|---|---|---|"]
+                   "| Cama | Camino más probable | Sale desde UCI | Piso y alta | Vuelve a UCI | UCI > 7 días | "
+                   "Días UCI p10-p50-p90 | Días UCI que faltan | Días hospital p50 |", "|---|---|---|---|---|---|---|---|---|"]
         for f in con_modelo:
             t = f["evaluacion"]["trayectoria"]
             u = t["dias_uci"]
-            lineas.append(f"| {f['cama']} | {t['p_alta_directa']:.0%} | {t['p_rebote_uci']:.0%} | {t['p_uci_prolongada']:.0%} | "
+            tr = t.get("trayectoria") or {"sale_desde_uci": t["p_alta_directa"], "piso_y_alta": 1 - t["p_alta_directa"],
+                                          "vuelve_a_uci": t["p_rebote_uci"]}
+            camino = max(tr, key=tr.get).replace("_", " ")
+            lineas.append(f"| {f['cama']} | {camino} | {tr['sale_desde_uci']:.0%} | {tr['piso_y_alta']:.0%} | "
+                          f"{tr['vuelve_a_uci']:.0%} | {t['p_uci_prolongada']:.0%} | "
                           f"{u[0]:.0f}-{u[1]:.0f}-{u[2]:.0f} | {t['dias_uci_restantes'] if t['dias_uci_restantes'] is not None else ''} | "
                           f"{t['dias_total'][1]:.0f} |")
     lineas += ["", "## Acciones de 48 horas y de la semana", ""]
